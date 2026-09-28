@@ -201,7 +201,7 @@ Keep the signing secret your receivers already verify, and send the message `dat
 $wha->endpoints->create(['consumer_id' => 'con_...', 'url' => 'https://example.com/wh', 'secret' => 'whsec_...', 'body_format' => 'raw']);
 ```
 
-`secret` is `whsec_` and standard base64 of 24 to 64 bytes, and only on create (use `rotateSecret()` later). With `'body_format' => 'raw'` the signature covers that raw body; the default `standard` sends `{"type", "timestamp", "data"}`.
+`secret` is `whsec_` and standard base64 of 24 to 75 bytes, and only on create (use `rotateSecret()` later). With `'body_format' => 'raw'` the signature covers that raw body; the default `standard` sends `{"type", "timestamp", "data"}`.
 
 ### Pagination
 
