@@ -8,8 +8,8 @@ use WebhookAdmin\Page;
 
 final class Endpoints extends Resource
 {
-    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature'];
-    private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature'];
+    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature', 'type', 'destination'];
+    private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature', 'destination'];
 
     private static function path(string $endpointId, string $rest = ''): string
     {
@@ -18,9 +18,13 @@ final class Endpoints extends Resource
 
     /**
      * Creates an endpoint. The signing secret is returned only here. Requires `endpoints:write`.
+     * `url` is required for webhooks (`type` `http`, the default). Other types (`sqs`, `eventbridge`, `pubsub`, `s3`, `r2`, `gcs`,
+     * `azure_blob`, `servicebus`, `kafka`, `rabbitmq`; Pro plan and above) take `destination` instead, with `credentials`
+     * (write-only). The type cannot be changed later.
      *
-     * @param array{consumer_id: string, url: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
-     *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null} $params
+     * @param array{consumer_id: string, url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
+     *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
+     *        type?: string, destination?: array<string, mixed>} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
@@ -59,10 +63,12 @@ final class Endpoints extends Resource
     /**
      * Updates an endpoint. Only the keys you pass are sent. `'status' => 'active'` resumes a paused or disabled endpoint;
      * `'event_types' => null` receives all event types, `'retry' => null` goes back to the default policy and
-     * `'compat_signature' => null` removes it. Requires `endpoints:write`.
+     * `'compat_signature' => null` removes it. `destination` changes the settings of a destination other than a webhook;
+     * omit its `credentials` to keep the current ones. Requires `endpoints:write`.
      *
      * @param array{url?: string, event_types?: list<string>|null, status?: string, description?: string,
-     *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null} $params
+     *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
+     *        destination?: array<string, mixed>} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
@@ -128,6 +134,21 @@ final class Endpoints extends Resource
     public function sendTest(string $endpointId, array $params = [], array $options = []): array
     {
         return $this->http->request('POST', self::path($endpointId, '/test'), false, body: self::object(self::pick($params, ['event_type'])), hasBody: true, options: self::opts($options));
+    }
+
+    /**
+     * Sends one test message to a destination other than a webhook right away and returns the result
+     * (`ok`, `via`, `response_status`, `duration_ms`, `error`, `response_head`, `ref`). Nothing is recorded.
+     * Pass `endpoint_id` to use the saved settings and credentials, or `type` and `destination` to try settings before saving.
+     * Counts toward the daily limit of test sends. Not retried. Pro plan and above. Requires `endpoints:write`.
+     *
+     * @param array{endpoint_id?: string, type?: string, destination?: array<string, mixed>, fixed_ip?: bool} $params
+     * @return array<string, mixed>
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function testDestination(array $params, array $options = []): array
+    {
+        return $this->http->request('POST', '/v1/destinations/test', false, body: self::object(self::pick($params, ['endpoint_id', 'type', 'destination', 'fixed_ip'])), hasBody: true, options: self::opts($options));
     }
 
     /**

@@ -87,10 +87,11 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `deliveries->retry($id)` | `POST /v1/deliveries/:id/retry` |
 | `consumers->create(['external_id', 'name'?])` | `POST /v1/consumers` |
 | `consumers->list(['limit'?, 'cursor'?])` | `GET /v1/consumers` |
-| `endpoints->create(['consumer_id', 'url', 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?])` | `POST /v1/endpoints` |
+| `endpoints->create(['consumer_id', 'url'?, 'type'?, 'destination'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?])` | `POST /v1/endpoints` |
 | `endpoints->list(['consumer_id'?])` | `GET /v1/endpoints` |
 | `endpoints->get($id)` | `GET /v1/endpoints/:id` |
-| `endpoints->update($id, ['url'?, 'event_types'?, 'status'?, 'description'?, 'retry'?, 'compat_signature'?])` | `PATCH /v1/endpoints/:id` |
+| `endpoints->update($id, ['url'?, 'destination'?, 'event_types'?, 'status'?, 'description'?, 'retry'?, 'compat_signature'?])` | `PATCH /v1/endpoints/:id` |
+| `endpoints->testDestination(['endpoint_id'?, 'type'?, 'destination'?, 'fixed_ip'?])` | `POST /v1/destinations/test` |
 | `endpoints->delete($id)` | `DELETE /v1/endpoints/:id` |
 | `endpoints->rotateSecret($id)` | `POST /v1/endpoints/:id/rotate-secret` |
 | `endpoints->sendTest($id, ['event_type'?])` | `POST /v1/endpoints/:id/test` |
