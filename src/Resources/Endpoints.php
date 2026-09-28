@@ -8,8 +8,8 @@ use WebhookAdmin\Page;
 
 final class Endpoints extends Resource
 {
-    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature', 'type', 'destination'];
-    private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature', 'destination'];
+    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature', 'type', 'destination', 'body_format', 'secret'];
+    private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature', 'destination', 'body_format'];
 
     private static function path(string $endpointId, string $rest = ''): string
     {
@@ -22,10 +22,13 @@ final class Endpoints extends Resource
      * receiver polls; then create a poller token with `createPollerToken()`. Other types (`sqs`, `eventbridge`, `pubsub`, `s3`,
      * `r2`, `gcs`, `azure_blob`, `servicebus`, `kafka`, `rabbitmq`; Pro plan and above) take `destination` instead, with
      * `credentials` (write-only). The type cannot be changed later.
+     * `body_format`: `standard` (default, `{ type, timestamp, data }`) or `raw` (the message `data` itself; the signature covers
+     * the body as sent). `secret`: an existing signing secret to keep, such as one moved from Svix (`whsec_` and standard base64
+     * of 24 to 64 bytes; `whsec_` may be omitted). Omit it to generate one; it cannot be set on update (use `rotateSecret()`).
      *
      * @param array{consumer_id: string, url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
-     *        type?: string, destination?: array<string, mixed>} $params
+     *        type?: string, destination?: array<string, mixed>, body_format?: 'standard'|'raw', secret?: string} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
@@ -69,7 +72,7 @@ final class Endpoints extends Resource
      *
      * @param array{url?: string, event_types?: list<string>|null, status?: string, description?: string,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
-     *        destination?: array<string, mixed>} $params
+     *        destination?: array<string, mixed>, body_format?: 'standard'|'raw'} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
@@ -156,7 +159,7 @@ final class Endpoints extends Resource
      * Gets the endpoint's transformation (`endpoint_id`, `code`, `updated_at`). Throws `NotFoundException` when there is none.
      * Requires `logs:read`.
      *
-     * @return array{endpoint_id: string, code: string, updated_at: int}
+     * @return array{endpoint_id: string, code: string, updated_at: int, enabled: bool, variables: array<string, string>|null}
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
     public function getTransformation(string $endpointId, array $options = []): array
@@ -166,17 +169,21 @@ final class Endpoints extends Resource
 
     /**
      * Saves the endpoint's transformation, which runs right before every attempt. The signature covers the transformed body.
-     * `code` is JavaScript defining `function handler(webhook)`, up to 16 KB. `webhook` is `{ method, url, eventType, payload, headers, cancel }`;
+     * Only the keys you pass are sent; the others keep their current values.
+     * `code` is JavaScript defining `function handler(webhook)`, up to 51,200 characters, required when the endpoint has no
+     * transformation yet. `webhook` is `{ method, url, eventType, payload, headers, cancel, env, transformationsParams }`;
      * return it after changing `payload`, `headers`, `method` (`POST` / `PUT` / `PATCH`) or the path and query of `url`, or set `cancel: true`.
-     * Pro plan and above. Requires `endpoints:write`.
+     * `'enabled' => false` keeps the code but stops applying it. `variables`: up to 50 string values (names of 1 to 100
+     * characters, up to 4 KB as JSON), read-only as `webhook.env`; `null` removes them.
+     * Pro plan and above (`'enabled' => false` alone works on any plan). Requires `endpoints:write`.
      *
-     * @param array{code: string} $params
-     * @return array{endpoint_id: string, code: string, updated_at: int}
+     * @param array{code?: string, enabled?: bool, variables?: array<string, string>|null} $params
+     * @return array{endpoint_id: string, code: string, updated_at: int, enabled: bool, variables: array<string, string>|null}
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
     public function setTransformation(string $endpointId, array $params, array $options = []): array
     {
-        return $this->http->request('PUT', self::path($endpointId, '/transformation'), true, body: self::pick($params, ['code']), hasBody: true, options: self::opts($options));
+        return $this->http->request('PUT', self::path($endpointId, '/transformation'), true, body: self::object(self::objects(self::pick($params, ['code', 'enabled', 'variables']), ['variables'])), hasBody: true, options: self::opts($options));
     }
 
     /**
@@ -192,18 +199,19 @@ final class Endpoints extends Resource
     /**
      * Runs a transformation against a sample payload and returns the result. Nothing is sent or saved.
      * `code` defaults to the saved transformation, `payload` (sample `data`) to `{ test: true, endpoint_id }` and
-     * `event_type` to `webhook.test`. `result` is `send` (with `method`, `url`, `headers`, `payload`, `changed`),
+     * `event_type` to `webhook.test`, `variables` (`webhook.env`) to the saved variables; `transformations_params` is
+     * `webhook.transformationsParams`. `result` is `send` (with `method`, `url`, `headers`, `payload`, `changed`),
      * `cancel`, or `error` (with `error` => `['kind', 'message']`); `logs` holds `console.log` output.
      * Requires `endpoints:write`.
      *
-     * @param array{code?: string, payload?: mixed, event_type?: string} $params
+     * @param array{code?: string, payload?: mixed, event_type?: string, variables?: array<string, string>|null, transformations_params?: array<string, mixed>} $params
      * @return array{result: 'send'|'cancel'|'error', logs: list<string>, method?: string, url?: string, headers?: array<string, string>,
      *         payload?: mixed, changed?: bool, error?: array{kind: string, message: string}}
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
     public function testTransformation(string $endpointId, array $params = [], array $options = []): array
     {
-        return $this->http->request('POST', self::path($endpointId, '/transformation/test'), true, body: self::object(self::pick($params, ['code', 'payload', 'event_type'])), hasBody: true, options: self::opts($options));
+        return $this->http->request('POST', self::path($endpointId, '/transformation/test'), true, body: self::object(self::objects(self::pick($params, ['code', 'payload', 'event_type', 'variables', 'transformations_params']), ['variables', 'transformations_params'])), hasBody: true, options: self::opts($options));
     }
 
     /**

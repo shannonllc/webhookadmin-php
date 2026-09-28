@@ -22,6 +22,10 @@ final class ResourcesTest extends TestCase
         self::assertSame('application/json', $t->last()->headers['content-type']);
         $c->messages->send(['consumer' => 'c', 'event_type' => 'e', 'payload' => new \stdClass()]);
         self::assertStringEndsWith('"payload":{}}', (string) $t->last()->body);
+        $c->messages->send(['consumer' => 'c', 'event_type' => 'e', 'payload' => 1, 'transformations_params' => ['ch' => '#a']]);
+        self::assertSame(['consumer' => 'c', 'event_type' => 'e', 'payload' => 1, 'transformations_params' => ['ch' => '#a']], $t->lastCall()[2]);
+        $c->messages->send(['consumer' => 'c', 'event_type' => 'e', 'payload' => 1, 'transformations_params' => []]);
+        self::assertStringEndsWith('"transformations_params":{}}', (string) $t->last()->body);
         $c->messages->get('msg_1/../x');
         self::assertSame('https://api.test/v1/messages/msg_1%2F..%2Fx', $t->last()->url);
     }
@@ -63,6 +67,10 @@ final class ResourcesTest extends TestCase
         self::assertSame('{"event_types":null,"retry":null,"compat_signature":null,"url":"https://y","description":""}', $t->last()->body);
         $c->endpoints->update('ep_1', []);
         self::assertSame('{}', $t->last()->body);
+        $c->endpoints->create(['consumer_id' => 'con_1', 'url' => 'https://x', 'body_format' => 'raw', 'secret' => 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw']);
+        self::assertSame(['consumer_id' => 'con_1', 'url' => 'https://x', 'body_format' => 'raw', 'secret' => 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'], $t->lastCall()[2]);
+        $c->endpoints->update('ep_1', ['body_format' => 'standard', 'secret' => 'whsec_x']);
+        self::assertSame('{"body_format":"standard"}', $t->last()->body);
         $c->endpoints->rotateSecret('ep_1');
         self::assertSame(['POST', '/v1/endpoints/ep_1/rotate-secret', null], $t->lastCall());
         $c->endpoints->recover('ep_1', ['since' => 1790000000000]);
@@ -96,6 +104,18 @@ final class ResourcesTest extends TestCase
         $c->endpoints->testTransformation('ep_1', ['code' => 'x', 'payload' => null]);
         self::assertSame('{"code":"x","payload":null}', $t->last()->body);
         $c->endpoints->testTransformation('ep_1');
+        self::assertSame('{}', $t->last()->body);
+        $c->endpoints->testTransformation('ep_1', ['variables' => ['A' => '1'], 'transformations_params' => []]);
+        self::assertSame('{"variables":{"A":"1"},"transformations_params":{}}', $t->last()->body);
+        $c->endpoints->testTransformation('ep_1', ['variables' => null]);
+        self::assertSame('{"variables":null}', $t->last()->body);
+        $c->endpoints->setTransformation('ep_1', ['enabled' => false, 'variables' => ['TOKEN' => 't']]);
+        self::assertSame(['PUT', '/v1/endpoints/ep_1/transformation', ['enabled' => false, 'variables' => ['TOKEN' => 't']]], $t->lastCall());
+        $c->endpoints->setTransformation('ep_1', ['variables' => []]);
+        self::assertSame('{"variables":{}}', $t->last()->body);
+        $c->endpoints->setTransformation('ep_1', ['variables' => null]);
+        self::assertSame('{"variables":null}', $t->last()->body);
+        $c->endpoints->setTransformation('ep_1', []);
         self::assertSame('{}', $t->last()->body);
     }
 

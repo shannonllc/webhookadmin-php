@@ -12,8 +12,10 @@ final class Messages extends Resource
      * Sends a message to every active endpoint of the consumer that accepts the event type.
      * Requires the `messages:send` scope.
      *
-     * @param array{consumer: string, event_type: string, payload: mixed} $params `consumer` is your customer's ID
-     *        (`external_id`); the consumer is created if it does not exist.
+     * @param array{consumer: string, event_type: string, payload: mixed, transformations_params?: array<string, mixed>} $params
+     *        `consumer` is your customer's ID (`external_id`); the consumer is created if it does not exist.
+     *        `transformations_params` (a JSON object, up to 4 KB as JSON) is passed to the endpoints' transformations as
+     *        `webhook.transformationsParams`.
      * @param array{idempotency_key?: string, timeout?: float|int, max_retries?: int} $options `idempotency_key` (1 to 256
      *        characters) returns the same message for 24 hours. Generated when omitted, and reused across retries.
      * @return array{id: string, deliveries: int}
@@ -21,7 +23,7 @@ final class Messages extends Resource
     public function send(array $params, array $options = []): array
     {
         $key = $options['idempotency_key'] ?? 'webhookadmin-php-' . self::uuid();
-        $body = self::pick($params, ['consumer', 'event_type', 'payload']);
+        $body = self::objects(self::pick($params, ['consumer', 'event_type', 'payload', 'transformations_params']), ['transformations_params']);
         return $this->http->request('POST', '/v1/messages', true, body: $body, hasBody: true, headers: ['idempotency-key' => $key], options: self::opts($options));
     }
 
