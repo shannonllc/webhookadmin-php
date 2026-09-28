@@ -18,10 +18,10 @@ final class Endpoints extends Resource
 
     /**
      * Creates an endpoint. The signing secret is returned only here. `'type' => 'polling'` (without `url`) creates an
-     * endpoint the receiver polls; then create a poller token with `createPollerToken()`. `url` is required for a webhook
-     * endpoint. `type` cannot be changed later. Requires `endpoints:write`.
+     * endpoint the receiver polls; then create a poller token with `createPollerToken()`. `url` is required for an http
+     * endpoint (the default `type`). `type` cannot be changed later. Requires `endpoints:write`.
      *
-     * @param array{consumer_id: string, type?: 'webhook'|'polling', url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
+     * @param array{consumer_id: string, type?: 'http'|'polling', url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
