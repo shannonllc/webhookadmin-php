@@ -8,7 +8,7 @@ use WebhookAdmin\Page;
 
 final class Endpoints extends Resource
 {
-    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature'];
+    private const CREATE = ['consumer_id', 'type', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature'];
     private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature'];
 
     private static function path(string $endpointId, string $rest = ''): string
@@ -17,9 +17,11 @@ final class Endpoints extends Resource
     }
 
     /**
-     * Creates an endpoint. The signing secret is returned only here. Requires `endpoints:write`.
+     * Creates an endpoint. The signing secret is returned only here. `'type' => 'polling'` (without `url`) creates an
+     * endpoint the receiver polls; then create a poller token with `createPollerToken()`. `url` is required for a webhook
+     * endpoint. `type` cannot be changed later. Requires `endpoints:write`.
      *
-     * @param array{consumer_id: string, url: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
+     * @param array{consumer_id: string, type?: 'webhook'|'polling', url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
@@ -182,5 +184,39 @@ final class Endpoints extends Resource
     public function testTransformation(string $endpointId, array $params = [], array $options = []): array
     {
         return $this->http->request('POST', self::path($endpointId, '/transformation/test'), true, body: self::object(self::pick($params, ['code', 'payload', 'event_type'])), hasBody: true, options: self::opts($options));
+    }
+
+    /**
+     * Lists the poller tokens of a polling endpoint (`['items' => [...]]`). Requires `logs:read`.
+     *
+     * @return array{items: list<array{id: string, endpoint_id: string, name: string, prefix: string, created_at: int, last_used_at: int|null}>}
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function listPollerTokens(string $endpointId, array $options = []): array
+    {
+        return $this->http->request('GET', self::path($endpointId, '/poller-tokens'), true, options: self::opts($options));
+    }
+
+    /**
+     * Creates a poller token (`sk_poll_...`) for a polling endpoint. The token (`token`) is returned only here; it can only
+     * read this endpoint. `name`: up to 100 characters. Up to 5 per endpoint. Starter plan and above. Requires `endpoints:write`.
+     *
+     * @param array{name?: string} $params
+     * @return array{id: string, endpoint_id: string, name: string, prefix: string, created_at: int, last_used_at: int|null, token: string}
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function createPollerToken(string $endpointId, array $params = [], array $options = []): array
+    {
+        return $this->http->request('POST', self::path($endpointId, '/poller-tokens'), false, body: self::object(self::pick($params, ['name'])), hasBody: true, options: self::opts($options));
+    }
+
+    /**
+     * Deletes a poller token. It stops working right away. Requires `endpoints:write`.
+     *
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function deletePollerToken(string $endpointId, string $tokenId, array $options = []): void
+    {
+        $this->http->request('DELETE', self::path($endpointId, '/poller-tokens/' . self::id($tokenId)), true, options: self::opts($options));
     }
 }

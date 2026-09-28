@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace WebhookAdmin\Tests;
 
 use PHPUnit\Framework\TestCase;
+use WebhookAdmin\Exception\ApiException;
 use WebhookAdmin\Exception\ConflictException;
 use WebhookAdmin\Exception\NotFoundException;
 
@@ -115,6 +116,47 @@ final class ResourcesTest extends TestCase
         $t = new FakeTransport(FakeTransport::json(404, ['error' => 'not_found', 'message' => 'no transformation']));
         $this->expectException(NotFoundException::class);
         FakeTransport::client($t)->endpoints->getTransformation('ep_1');
+    }
+
+    public function testPollingEndpointAndPollerTokens(): void
+    {
+        $token = ['id' => 'ptk_1', 'endpoint_id' => 'ep_1', 'name' => 'erp', 'prefix' => 'sk_poll_abcd...', 'created_at' => 1, 'last_used_at' => null];
+        $t = new FakeTransport(
+            FakeTransport::json(201, ['id' => 'ep_1', 'type' => 'polling', 'url' => null, 'poller_url' => 'https://api.test/v1/poller/ep_1']),
+            FakeTransport::json(200, ['items' => [$token]]),
+            FakeTransport::json(201, [...$token, 'token' => 'sk_poll_x']),
+            FakeTransport::json(201, [...$token, 'token' => 'sk_poll_y']),
+            FakeTransport::json(204),
+        );
+        $c = FakeTransport::client($t);
+        self::assertSame('https://api.test/v1/poller/ep_1', $c->endpoints->create(['consumer_id' => 'con_1', 'type' => 'polling'])['poller_url']);
+        self::assertSame(['POST', '/v1/endpoints', ['consumer_id' => 'con_1', 'type' => 'polling']], $t->lastCall());
+        self::assertSame(['items' => [$token]], $c->endpoints->listPollerTokens('ep_1'));
+        self::assertSame(['GET', '/v1/endpoints/ep_1/poller-tokens', null], $t->lastCall());
+        self::assertSame('sk_poll_x', $c->endpoints->createPollerToken('ep_1', ['name' => 'erp'])['token']);
+        self::assertSame(['POST', '/v1/endpoints/ep_1/poller-tokens', ['name' => 'erp']], $t->lastCall());
+        self::assertSame('sk_poll_y', $c->endpoints->createPollerToken('ep_1')['token']);
+        self::assertSame('{}', $t->last()->body);
+        $c->endpoints->deletePollerToken('ep_1', 'ptk/1');
+        self::assertSame('DELETE', $t->last()->method);
+        self::assertSame('https://api.test/v1/endpoints/ep_1/poller-tokens/ptk%2F1', $t->last()->url);
+    }
+
+    public function testPollerTokensRetries(): void
+    {
+        $unavailable = FakeTransport::json(503, ['error' => 'unavailable', 'message' => 'x']);
+        $t = new FakeTransport($unavailable, FakeTransport::json(200, ['items' => []]), $unavailable, FakeTransport::json(204), $unavailable);
+        $c = FakeTransport::client($t, ['max_retries' => 1]);
+        $c->endpoints->listPollerTokens('ep_1');
+        $c->endpoints->deletePollerToken('ep_1', 'ptk_1');
+        self::assertCount(4, $t->calls);
+        try {
+            $c->endpoints->createPollerToken('ep_1');
+            self::fail('no exception');
+        } catch (ApiException $e) {
+            self::assertSame(503, $e->status);
+        }
+        self::assertCount(5, $t->calls);
     }
 
     public function testEndpointsList(): void

@@ -87,7 +87,7 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `deliveries->retry($id)` | `POST /v1/deliveries/:id/retry` |
 | `consumers->create(['external_id', 'name'?])` | `POST /v1/consumers` |
 | `consumers->list(['limit'?, 'cursor'?])` | `GET /v1/consumers` |
-| `endpoints->create(['consumer_id', 'url', 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?])` | `POST /v1/endpoints` |
+| `endpoints->create(['consumer_id', 'type'?, 'url'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?])` | `POST /v1/endpoints` |
 | `endpoints->list(['consumer_id'?])` | `GET /v1/endpoints` |
 | `endpoints->get($id)` | `GET /v1/endpoints/:id` |
 | `endpoints->update($id, ['url'?, 'event_types'?, 'status'?, 'description'?, 'retry'?, 'compat_signature'?])` | `PATCH /v1/endpoints/:id` |
@@ -100,6 +100,9 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `endpoints->setTransformation($id, ['code'])` | `PUT /v1/endpoints/:id/transformation` |
 | `endpoints->deleteTransformation($id)` | `DELETE /v1/endpoints/:id/transformation` |
 | `endpoints->testTransformation($id, ['code'?, 'payload'?, 'event_type'?])` | `POST /v1/endpoints/:id/transformation/test` |
+| `endpoints->listPollerTokens($id)` | `GET /v1/endpoints/:id/poller-tokens` |
+| `endpoints->createPollerToken($id, ['name'?])` | `POST /v1/endpoints/:id/poller-tokens` |
+| `endpoints->deletePollerToken($id, $tokenId)` | `DELETE /v1/endpoints/:id/poller-tokens/:tid` |
 | `portal->createLink($consumerId, ['frame_origin'?, 'locale'?])` | `POST /v1/consumers/:id/portal` |
 | `eventTypes->list()` | `GET /v1/event-types` |
 | `eventTypes->create(['name', 'description'?])` | `POST /v1/event-types` |
@@ -120,6 +123,33 @@ $r = $wha->endpoints->recovery('ep_...', $recovery['id']); // $r['status']: runn
 ```
 
 Messages created while the endpoint was `disabled` are not covered.
+
+### Polling endpoints
+
+A polling endpoint has no URL: the receiver fetches its messages with a poller token (`sk_poll_...`), which can only read that endpoint. Starter plan and above.
+
+```php
+// sender (API key)
+$ep = $wha->endpoints->create(['consumer_id' => 'con_...', 'type' => 'polling']);
+$token = $wha->endpoints->createPollerToken($ep['id'], ['name' => 'erp'])['token']; // returned only here
+```
+
+The receiver needs only the endpoint ID and the token:
+
+```php
+use WebhookAdmin\Poller;
+
+$poller = new Poller('ep_...', 'sk_poll_...');
+$iterator = loadIterator(); // null the first time: start of your plan's retention
+foreach ($poller->pages(['iterator' => $iterator]) as $page) {
+    foreach ($page['data'] as $m) {
+        handle($m['payload']); // ['type', 'timestamp', 'data']
+    }
+    saveIterator($page['iterator']);
+}
+```
+
+`pages()` stops after a page with `done` true (nothing more right now); run it again later with the saved iterator. Delivery is at least once: the next call with a page's `iterator` acknowledges that page, and calling with an older iterator returns the same messages again, so deduplicate by `$m['id']` if needed. `poll(['iterator'?, 'limit'?])` fetches one page (`limit` 1 to 250, default 50), and `messages()` yields the messages of `pages()` one by one. `new Poller()` takes the same options as `Client` (`base_url`, `timeout`, `max_retries`, `transport`). `$m['headers']` carries the same `webhook-id`, `webhook-timestamp` and `webhook-signature` as a pushed webhook; checking the signature is optional, since the connection is already authenticated by the token.
 
 ### Retry policy per endpoint
 
