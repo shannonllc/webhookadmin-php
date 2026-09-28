@@ -99,6 +99,36 @@ final class ResourcesTest extends TestCase
         self::assertSame('{}', $t->last()->body);
     }
 
+    public function testDestinations(): void
+    {
+        $ep = ['id' => 'ep_1', 'type' => 'sqs', 'destination' => ['region' => 'ap-northeast-1', 'credentials_hint' => 'AKIA…MPLE']];
+        $result = ['ok' => true, 'via' => 'sqs', 'response_status' => 200, 'duration_ms' => 3, 'error' => null, 'response_head' => null, 'ref' => 'm'];
+        $t = new FakeTransport(FakeTransport::json(201, $ep), FakeTransport::json(200, $ep), FakeTransport::json(200, $result), FakeTransport::json(200, $result));
+        $c = FakeTransport::client($t);
+        $dest = ['region' => 'ap-northeast-1', 'account_id' => '123456789012', 'queue_name' => 'q', 'credentials' => ['access_key_id' => 'A', 'secret_access_key' => 'S']];
+        self::assertSame($ep, $c->endpoints->create(['consumer_id' => 'con_1', 'type' => 'sqs', 'destination' => $dest]));
+        self::assertSame(['POST', '/v1/endpoints', ['consumer_id' => 'con_1', 'type' => 'sqs', 'destination' => $dest]], $t->lastCall());
+        $c->endpoints->update('ep_1', ['destination' => ['queue_name' => 'other']]);
+        self::assertSame(['PATCH', '/v1/endpoints/ep_1', ['destination' => ['queue_name' => 'other']]], $t->lastCall());
+        self::assertSame($result, $c->endpoints->testDestination(['endpoint_id' => 'ep_1', 'unknown' => 1]));
+        self::assertSame(['POST', '/v1/destinations/test', ['endpoint_id' => 'ep_1']], $t->lastCall());
+        $c->endpoints->testDestination(['type' => 'sqs', 'destination' => ['region' => 'x'], 'fixed_ip' => true]);
+        self::assertSame('{"type":"sqs","destination":{"region":"x"},"fixed_ip":true}', $t->last()->body);
+    }
+
+    public function testDestinationTestNotRetriedOn5xx(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(503, ['error' => 'unavailable', 'message' => 'x']));
+        $c = FakeTransport::client($t, ['max_retries' => 2]);
+        try {
+            $c->endpoints->testDestination(['endpoint_id' => 'ep_1']);
+            self::fail('not thrown');
+        } catch (\WebhookAdmin\Exception\ApiException $e) {
+            self::assertSame(503, $e->status);
+        }
+        self::assertCount(1, $t->calls);
+    }
+
     public function testTransformationRetriedOn5xx(): void
     {
         $tf = ['endpoint_id' => 'ep_1', 'code' => 'x', 'updated_at' => 1];
