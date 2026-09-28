@@ -1,0 +1,154 @@
+<?php
+
+declare(strict_types=1);
+
+namespace WebhookAdmin\Tests;
+
+use PHPUnit\Framework\TestCase;
+use WebhookAdmin\Exception\ConflictException;
+use WebhookAdmin\Exception\NotFoundException;
+
+/** Each method calls the documented method, path and body (docs/api.md, section 2). */
+final class ResourcesTest extends TestCase
+{
+    public function testMessages(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(200, ['ok' => true]));
+        $c = FakeTransport::client($t);
+        $c->messages->send(['consumer' => 'cus_1', 'event_type' => 'invoice.paid', 'payload' => ['a' => [1, '二'], 'url' => 'https://x/y', 'f' => 1.0]], ['idempotency_key' => 'k1']);
+        self::assertSame(['POST', '/v1/messages', ['consumer' => 'cus_1', 'event_type' => 'invoice.paid', 'payload' => ['a' => [1, '二'], 'url' => 'https://x/y', 'f' => 1.0]]], $t->lastCall());
+        self::assertSame('{"consumer":"cus_1","event_type":"invoice.paid","payload":{"a":[1,"二"],"url":"https://x/y","f":1.0}}', $t->last()->body);
+        self::assertSame('application/json', $t->last()->headers['content-type']);
+        $c->messages->send(['consumer' => 'c', 'event_type' => 'e', 'payload' => new \stdClass()]);
+        self::assertStringEndsWith('"payload":{}}', (string) $t->last()->body);
+        $c->messages->get('msg_1/../x');
+        self::assertSame('https://api.test/v1/messages/msg_1%2F..%2Fx', $t->last()->url);
+    }
+
+    public function testDeliveriesAndConsumers(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(202, ['id' => 'x']));
+        $c = FakeTransport::client($t);
+        $c->deliveries->retry('dlv_1');
+        self::assertSame(['POST', '/v1/deliveries/dlv_1/retry', null], $t->lastCall());
+        $c->consumers->create(['external_id' => 'cus_1']);
+        self::assertSame(['POST', '/v1/consumers', ['external_id' => 'cus_1']], $t->lastCall());
+        $c->consumers->create(['external_id' => 'cus_2', 'name' => 'Acme', 'unknown' => 1]);
+        self::assertSame(['POST', '/v1/consumers', ['external_id' => 'cus_2', 'name' => 'Acme']], $t->lastCall());
+    }
+
+    public function testEndpoints(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(200, ['ok' => true]));
+        $c = FakeTransport::client($t);
+        $c->endpoints->create(['consumer_id' => 'con_1', 'url' => 'https://x.example/wh']);
+        self::assertSame(['POST', '/v1/endpoints', ['consumer_id' => 'con_1', 'url' => 'https://x.example/wh']], $t->lastCall());
+        $full = [
+            'consumer_id' => 'con_1',
+            'url' => 'https://x.example/wh',
+            'event_types' => null,
+            'fixed_ip' => true,
+            'description' => 'd',
+            'retry' => ['count' => 3, 'interval' => '5m'],
+            'compat_signature' => ['header' => 'x-hub-signature-256', 'content' => 'body', 'encoding' => 'hex', 'prefix' => 'sha256='],
+        ];
+        $c->endpoints->create($full);
+        self::assertSame($full, $t->lastCall()[2]);
+        $c->endpoints->get('ep_1');
+        self::assertSame(['GET', '/v1/endpoints/ep_1', null], $t->lastCall());
+        $c->endpoints->update('ep_1', ['status' => 'paused']);
+        self::assertSame(['PATCH', '/v1/endpoints/ep_1', ['status' => 'paused']], $t->lastCall());
+        $c->endpoints->update('ep_1', ['event_types' => null, 'retry' => null, 'compat_signature' => null, 'url' => 'https://y', 'description' => '']);
+        self::assertSame('{"event_types":null,"retry":null,"compat_signature":null,"url":"https://y","description":""}', $t->last()->body);
+        $c->endpoints->update('ep_1', []);
+        self::assertSame('{}', $t->last()->body);
+        $c->endpoints->rotateSecret('ep_1');
+        self::assertSame(['POST', '/v1/endpoints/ep_1/rotate-secret', null], $t->lastCall());
+        $c->endpoints->recover('ep_1', ['since' => 1790000000000]);
+        self::assertSame(['POST', '/v1/endpoints/ep_1/recover', ['since' => 1790000000000]], $t->lastCall());
+        $c->endpoints->recovery('ep_1', 'rcv_1');
+        self::assertSame(['GET', '/v1/endpoints/ep_1/recoveries/rcv_1', null], $t->lastCall());
+        $c->endpoints->sendTest('ep_1');
+        self::assertSame('{}', $t->last()->body);
+        self::assertSame('POST', $t->last()->method);
+        $c->endpoints->sendTest('ep_1', ['event_type' => 'user.created']);
+        self::assertSame(['POST', '/v1/endpoints/ep_1/test', ['event_type' => 'user.created']], $t->lastCall());
+        $c->endpoints->delete('ep_1');
+        self::assertSame(['DELETE', '/v1/endpoints/ep_1', null], $t->lastCall());
+    }
+
+    public function testEndpointsList(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(200, ['items' => [['id' => 'ep_1']]]));
+        $c = FakeTransport::client($t);
+        $page = $c->endpoints->list(['consumer_id' => 'con_1']);
+        self::assertSame([['id' => 'ep_1']], $page->items);
+        self::assertNull($page->nextCursor);
+        self::assertSame('https://api.test/v1/endpoints?consumer_id=con_1', $t->last()->url);
+        $c->endpoints->list();
+        self::assertSame('https://api.test/v1/endpoints', $t->last()->url);
+    }
+
+    public function testPortal(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(503, []), FakeTransport::json(201, ['url' => 'u', 'expires_at' => 1]));
+        $c = FakeTransport::client($t);
+        self::assertSame(['url' => 'u', 'expires_at' => 1], $c->portal->createLink('con_1'));
+        self::assertCount(2, $t->calls); // retried: safe to repeat
+        self::assertSame('{}', $t->last()->body);
+        self::assertSame('https://api.test/v1/consumers/con_1/portal', $t->last()->url);
+        $c->portal->createLink('con_1', ['frame_origin' => 'https://app.example.com', 'locale' => 'en']);
+        self::assertSame(['frame_origin' => 'https://app.example.com', 'locale' => 'en'], $t->lastCall()[2]);
+    }
+
+    private static function et(string $name, string $description = ''): array
+    {
+        return ['name' => $name, 'description' => $description, 'archived_at' => null];
+    }
+
+    public function testEventTypesListAndCreate(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(200, ['items' => [self::et('a')]]), FakeTransport::json(201, self::et('b', 'B')));
+        $c = FakeTransport::client($t);
+        self::assertSame(['items' => [self::et('a')]], $c->eventTypes->list());
+        self::assertSame(['GET', '/v1/event-types', null], $t->lastCall());
+        self::assertSame(self::et('b', 'B'), $c->eventTypes->create(['name' => 'b', 'description' => 'B']));
+        self::assertSame(['POST', '/v1/event-types', ['name' => 'b', 'description' => 'B']], $t->lastCall());
+    }
+
+    public function testEnsure(): void
+    {
+        $t = new FakeTransport(
+            FakeTransport::json(200, ['items' => [self::et('a', 'kept')]]),
+            FakeTransport::json(201, self::et('b', 'B')),
+            FakeTransport::json(201, self::et('c')),
+        );
+        $r = FakeTransport::client($t)->eventTypes->ensure([['name' => 'a', 'description' => 'new'], ['name' => 'b', 'description' => 'B'], 'c', 'b']);
+        self::assertSame(['created' => [self::et('b', 'B'), self::et('c')], 'existing' => [self::et('a', 'kept')]], $r);
+        self::assertSame([null, '{"name":"b","description":"B"}', '{"name":"c"}'], array_map(fn ($r) => $r->body, $t->calls));
+    }
+
+    public function testEnsureRace(): void
+    {
+        $t = new FakeTransport(
+            FakeTransport::json(200, ['items' => []]),
+            FakeTransport::json(409, ['error' => 'conflict', 'message' => 'exists']),
+            FakeTransport::json(200, ['items' => [self::et('a', 'theirs'), self::et('z')]]),
+        );
+        self::assertSame(['created' => [], 'existing' => [self::et('a', 'theirs')]], FakeTransport::client($t)->eventTypes->ensure(['a']));
+    }
+
+    public function testEnsureOtherErrors(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(200, ['items' => []]), FakeTransport::json(404, ['error' => 'not_found', 'message' => 'x']));
+        $this->expectException(NotFoundException::class);
+        FakeTransport::client($t)->eventTypes->ensure(['a']);
+    }
+
+    public function testConflict(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(409, ['error' => 'conflict', 'message' => 'dup']));
+        $this->expectException(ConflictException::class);
+        FakeTransport::client($t)->consumers->create(['external_id' => 'x']);
+    }
+}
