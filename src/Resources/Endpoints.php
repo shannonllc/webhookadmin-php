@@ -129,4 +129,58 @@ final class Endpoints extends Resource
     {
         return $this->http->request('POST', self::path($endpointId, '/test'), false, body: self::object(self::pick($params, ['event_type'])), hasBody: true, options: self::opts($options));
     }
+
+    /**
+     * Gets the endpoint's transformation (`endpoint_id`, `code`, `updated_at`). Throws `NotFoundException` when there is none.
+     * Requires `logs:read`.
+     *
+     * @return array{endpoint_id: string, code: string, updated_at: int}
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function getTransformation(string $endpointId, array $options = []): array
+    {
+        return $this->http->request('GET', self::path($endpointId, '/transformation'), true, options: self::opts($options));
+    }
+
+    /**
+     * Saves the endpoint's transformation, which runs right before every attempt. The signature covers the transformed body.
+     * `code` is JavaScript defining `function handler(webhook)`, up to 16 KB. `webhook` is `{ method, url, eventType, payload, headers, cancel }`;
+     * return it after changing `payload`, `headers`, `method` (`POST` / `PUT` / `PATCH`) or the path and query of `url`, or set `cancel: true`.
+     * Pro plan and above. Requires `endpoints:write`.
+     *
+     * @param array{code: string} $params
+     * @return array{endpoint_id: string, code: string, updated_at: int}
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function setTransformation(string $endpointId, array $params, array $options = []): array
+    {
+        return $this->http->request('PUT', self::path($endpointId, '/transformation'), true, body: self::pick($params, ['code']), hasBody: true, options: self::opts($options));
+    }
+
+    /**
+     * Removes the endpoint's transformation. Requires `endpoints:write`.
+     *
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function deleteTransformation(string $endpointId, array $options = []): void
+    {
+        $this->http->request('DELETE', self::path($endpointId, '/transformation'), true, options: self::opts($options));
+    }
+
+    /**
+     * Runs a transformation against a sample payload and returns the result. Nothing is sent or saved.
+     * `code` defaults to the saved transformation, `payload` (sample `data`) to `{ test: true, endpoint_id }` and
+     * `event_type` to `webhook.test`. `result` is `send` (with `method`, `url`, `headers`, `payload`, `changed`),
+     * `cancel`, or `error` (with `error` => `['kind', 'message']`); `logs` holds `console.log` output.
+     * Requires `endpoints:write`.
+     *
+     * @param array{code?: string, payload?: mixed, event_type?: string} $params
+     * @return array{result: 'send'|'cancel'|'error', logs: list<string>, method?: string, url?: string, headers?: array<string, string>,
+     *         payload?: mixed, changed?: bool, error?: array{kind: string, message: string}}
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function testTransformation(string $endpointId, array $params = [], array $options = []): array
+    {
+        return $this->http->request('POST', self::path($endpointId, '/transformation/test'), true, body: self::object(self::pick($params, ['code', 'payload', 'event_type'])), hasBody: true, options: self::opts($options));
+    }
 }

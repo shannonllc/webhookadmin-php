@@ -96,6 +96,10 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `endpoints->sendTest($id, ['event_type'?])` | `POST /v1/endpoints/:id/test` |
 | `endpoints->recover($id, ['since'])` | `POST /v1/endpoints/:id/recover` |
 | `endpoints->recovery($id, $recoveryId)` | `GET /v1/endpoints/:id/recoveries/:rid` |
+| `endpoints->getTransformation($id)` | `GET /v1/endpoints/:id/transformation` |
+| `endpoints->setTransformation($id, ['code'])` | `PUT /v1/endpoints/:id/transformation` |
+| `endpoints->deleteTransformation($id)` | `DELETE /v1/endpoints/:id/transformation` |
+| `endpoints->testTransformation($id, ['code'?, 'payload'?, 'event_type'?])` | `POST /v1/endpoints/:id/transformation/test` |
 | `portal->createLink($consumerId, ['frame_origin'?, 'locale'?])` | `POST /v1/consumers/:id/portal` |
 | `eventTypes->list()` | `GET /v1/event-types` |
 | `eventTypes->create(['name', 'description'?])` | `POST /v1/event-types` |

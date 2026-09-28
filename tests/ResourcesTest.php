@@ -77,6 +77,46 @@ final class ResourcesTest extends TestCase
         self::assertSame(['DELETE', '/v1/endpoints/ep_1', null], $t->lastCall());
     }
 
+    public function testTransformation(): void
+    {
+        $tf = ['endpoint_id' => 'ep_1', 'code' => 'function handler(w) { return w }', 'updated_at' => 1000];
+        $result = ['result' => 'cancel', 'logs' => []];
+        $t = new FakeTransport(FakeTransport::json(200, $tf), FakeTransport::json(200, $tf), FakeTransport::json(204), FakeTransport::json(200, $result));
+        $c = FakeTransport::client($t);
+        self::assertSame($tf, $c->endpoints->getTransformation('ep_1'));
+        self::assertSame(['GET', '/v1/endpoints/ep_1/transformation', null], $t->lastCall());
+        self::assertSame($tf, $c->endpoints->setTransformation('ep_1', ['code' => $tf['code'], 'unknown' => 1]));
+        self::assertSame(['PUT', '/v1/endpoints/ep_1/transformation', ['code' => $tf['code']]], $t->lastCall());
+        self::assertSame('application/json', $t->last()->headers['content-type']);
+        $c->endpoints->deleteTransformation('ep_1');
+        self::assertSame(['DELETE', '/v1/endpoints/ep_1/transformation', null], $t->lastCall());
+        self::assertSame($result, $c->endpoints->testTransformation('ep_1', ['payload' => ['n' => 1], 'event_type' => 'a.b']));
+        self::assertSame(['POST', '/v1/endpoints/ep_1/transformation/test', ['payload' => ['n' => 1], 'event_type' => 'a.b']], $t->lastCall());
+        $c->endpoints->testTransformation('ep_1', ['code' => 'x', 'payload' => null]);
+        self::assertSame('{"code":"x","payload":null}', $t->last()->body);
+        $c->endpoints->testTransformation('ep_1');
+        self::assertSame('{}', $t->last()->body);
+    }
+
+    public function testTransformationRetriedOn5xx(): void
+    {
+        $tf = ['endpoint_id' => 'ep_1', 'code' => 'x', 'updated_at' => 1];
+        $unavailable = FakeTransport::json(503, ['error' => 'unavailable', 'message' => 'x']);
+        $t = new FakeTransport($unavailable, FakeTransport::json(200, $tf), $unavailable, FakeTransport::json(200, ['result' => 'cancel', 'logs' => []]), $unavailable, FakeTransport::json(204));
+        $c = FakeTransport::client($t, ['max_retries' => 1]);
+        self::assertSame($tf, $c->endpoints->setTransformation('ep_1', ['code' => 'x']));
+        self::assertSame('cancel', $c->endpoints->testTransformation('ep_1')['result']);
+        $c->endpoints->deleteTransformation('ep_1');
+        self::assertCount(6, $t->calls);
+    }
+
+    public function testTransformationNotFound(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(404, ['error' => 'not_found', 'message' => 'no transformation']));
+        $this->expectException(NotFoundException::class);
+        FakeTransport::client($t)->endpoints->getTransformation('ep_1');
+    }
+
     public function testEndpointsList(): void
     {
         $t = new FakeTransport(FakeTransport::json(200, ['items' => [['id' => 'ep_1']]]));
