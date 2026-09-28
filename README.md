@@ -81,21 +81,29 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 
 | Method | Endpoint |
 |---|---|
-| `messages->send(['consumer', 'event_type', 'payload'], ['idempotency_key'?])` | `POST /v1/messages` |
-| `messages->list(['status'?, 'event_type'?, 'q'?, 'limit'?, 'cursor'?])` | `GET /v1/messages` |
+| `messages->send(['consumer', 'event_type', 'payload', 'transformations_params'?], ['idempotency_key'?])` | `POST /v1/messages` |
+| `messages->list(['status'?, 'event_type'?, 'q'?, 'since'?, 'limit'?, 'cursor'?])` | `GET /v1/messages` |
 | `messages->get($id)` | `GET /v1/messages/:id` |
 | `deliveries->retry($id)` | `POST /v1/deliveries/:id/retry` |
 | `consumers->create(['external_id', 'name'?])` | `POST /v1/consumers` |
 | `consumers->list(['limit'?, 'cursor'?])` | `GET /v1/consumers` |
-| `endpoints->create(['consumer_id', 'url', 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?])` | `POST /v1/endpoints` |
+| `endpoints->create(['consumer_id', 'url'?, 'type'?, 'destination'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?, 'ordering'?, 'body_format'?, 'secret'?])` | `POST /v1/endpoints` |
 | `endpoints->list(['consumer_id'?])` | `GET /v1/endpoints` |
 | `endpoints->get($id)` | `GET /v1/endpoints/:id` |
-| `endpoints->update($id, ['url'?, 'event_types'?, 'status'?, 'description'?, 'retry'?, 'compat_signature'?])` | `PATCH /v1/endpoints/:id` |
+| `endpoints->update($id, ['url'?, 'destination'?, 'event_types'?, 'status'?, 'description'?, 'fixed_ip'?, 'retry'?, 'compat_signature'?, 'ordering'?, 'body_format'?])` | `PATCH /v1/endpoints/:id` |
+| `endpoints->testDestination(['endpoint_id'?, 'type'?, 'destination'?, 'fixed_ip'?])` | `POST /v1/destinations/test` |
 | `endpoints->delete($id)` | `DELETE /v1/endpoints/:id` |
 | `endpoints->rotateSecret($id)` | `POST /v1/endpoints/:id/rotate-secret` |
 | `endpoints->sendTest($id, ['event_type'?])` | `POST /v1/endpoints/:id/test` |
 | `endpoints->recover($id, ['since'])` | `POST /v1/endpoints/:id/recover` |
 | `endpoints->recovery($id, $recoveryId)` | `GET /v1/endpoints/:id/recoveries/:rid` |
+| `endpoints->getTransformation($id)` | `GET /v1/endpoints/:id/transformation` |
+| `endpoints->setTransformation($id, ['code'?, 'enabled'?, 'variables'?])` | `PUT /v1/endpoints/:id/transformation` |
+| `endpoints->deleteTransformation($id)` | `DELETE /v1/endpoints/:id/transformation` |
+| `endpoints->testTransformation($id, ['code'?, 'payload'?, 'event_type'?, 'variables'?, 'transformations_params'?])` | `POST /v1/endpoints/:id/transformation/test` |
+| `endpoints->listPollerTokens($id)` | `GET /v1/endpoints/:id/poller-tokens` |
+| `endpoints->createPollerToken($id, ['name'?])` | `POST /v1/endpoints/:id/poller-tokens` |
+| `endpoints->deletePollerToken($id, $tokenId)` | `DELETE /v1/endpoints/:id/poller-tokens/:tid` |
 | `portal->createLink($consumerId, ['frame_origin'?, 'locale'?])` | `POST /v1/consumers/:id/portal` |
 | `eventTypes->list()` | `GET /v1/event-types` |
 | `eventTypes->create(['name', 'description'?])` | `POST /v1/event-types` |
@@ -116,6 +124,33 @@ $r = $wha->endpoints->recovery('ep_...', $recovery['id']); // $r['status']: runn
 ```
 
 Messages created while the endpoint was `disabled` are not covered.
+
+### Polling endpoints
+
+A polling endpoint has no URL: the receiver fetches its messages with a poller token (`sk_poll_...`), which can only read that endpoint. Starter plan and above.
+
+```php
+// sender (API key)
+$ep = $wha->endpoints->create(['consumer_id' => 'con_...', 'type' => 'polling']);
+$token = $wha->endpoints->createPollerToken($ep['id'], ['name' => 'erp'])['token']; // returned only here
+```
+
+The receiver needs only the endpoint ID and the token:
+
+```php
+use WebhookAdmin\Poller;
+
+$poller = new Poller('ep_...', 'sk_poll_...');
+$iterator = loadIterator(); // null the first time: start of your plan's retention
+foreach ($poller->pages(['iterator' => $iterator]) as $page) {
+    foreach ($page['data'] as $m) {
+        handle($m['payload']); // ['type', 'timestamp', 'data']
+    }
+    saveIterator($page['iterator']);
+}
+```
+
+`pages()` stops after a page with `done` true (nothing more right now); run it again later with the saved iterator. Delivery is at least once: the next call with a page's `iterator` acknowledges that page, and calling with an older iterator returns the same messages again, so deduplicate by `$m['id']` if needed. `poll(['iterator'?, 'limit'?, 'event_types'?, 'after'?])` fetches one page (`limit` 1 to 250, default 50; `event_types` narrows the event types; `after`, a `DateTimeInterface` or ISO 8601 string, starts from that time when there is no iterator), and `messages()` yields the messages of `pages()` one by one. `new Poller()` takes the same options as `Client` (`base_url`, `timeout`, `max_retries`, `transport`). `$m['headers']` carries the same `webhook-id`, `webhook-timestamp` and `webhook-signature` as a pushed webhook; checking the signature is optional, since the connection is already authenticated by the token.
 
 ### Retry policy per endpoint
 
@@ -142,6 +177,31 @@ $wha->endpoints->update('ep_...', [
 ```
 
 `'content' => 'body'` has no replay protection. Use `timestamp_body` (signs `{webhook-timestamp}.{body}`) if you can, and move receivers to `Webhook::verify()`. Set `'compat_signature' => null` to remove it.
+
+### Transformations
+
+JavaScript that defines `handler(webhook)` runs right before every attempt (Pro plan and above). Keys you leave out keep their current values.
+
+```php
+$wha->endpoints->setTransformation('ep_...', [
+    'code' => 'function handler(webhook) { webhook.headers["x-token"] = webhook.env.TOKEN; return webhook; }',
+    'variables' => ['TOKEN' => '...'], // read-only as webhook.env; null removes them
+]);
+$wha->endpoints->setTransformation('ep_...', ['enabled' => false]); // keep the code, stop applying it
+$wha->messages->send(['consumer' => 'cus_123', 'event_type' => 'invoice.paid', 'payload' => $payload, 'transformations_params' => ['channel' => '#billing']]);
+```
+
+`code` is up to 51,200 characters and required only when the endpoint has no transformation yet. `variables` holds up to 50 string values (up to 4 KB as JSON). `transformations_params` (an array encoded as a JSON object, up to 4 KB) reaches the code as `webhook.transformationsParams`.
+
+### Moving from Svix
+
+Keep the signing secret your receivers already verify, and send the message `data` as the body as Svix does:
+
+```php
+$wha->endpoints->create(['consumer_id' => 'con_...', 'url' => 'https://example.com/wh', 'secret' => 'whsec_...', 'body_format' => 'raw']);
+```
+
+`secret` is `whsec_` and standard base64 of 24 to 75 bytes, and only on create (use `rotateSecret()` later). With `'body_format' => 'raw'` the signature covers that raw body; the default `standard` sends `{"type", "timestamp", "data"}`.
 
 ### Pagination
 

@@ -48,6 +48,23 @@ abstract class Resource
     }
 
     /**
+     * Sends the given keys as JSON objects even when they are empty arrays (such as `variables` => `[]`).
+     *
+     * @param array<string, mixed> $params
+     * @param list<string> $keys
+     * @return array<string, mixed>
+     */
+    protected static function objects(array $params, array $keys): array
+    {
+        foreach ($keys as $k) {
+            if (($params[$k] ?? null) === []) {
+                $params[$k] = new \stdClass();
+            }
+        }
+        return $params;
+    }
+
+    /**
      * @param array<string, mixed> $options
      * @return array{timeout?: float|int, max_retries?: int}
      */
