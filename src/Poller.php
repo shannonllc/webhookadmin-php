@@ -59,29 +59,37 @@ final class Poller
 
     /**
      * Fetches one page (`data`, `iterator`, `done`). `iterator`: the `iterator` of the previous page; omit it to start at the
-     * beginning of your plan's retention. `limit`: 1 to 250, default 50. Retried on 429, 5xx and connection errors like any other read.
+     * beginning of your plan's retention. `limit`: 1 to 250, default 50. `event_types`: only these event types (within the
+     * endpoint's `event_types`, up to 100). `after`: without `iterator`, start from messages accepted at or after this time (a
+     * `DateTimeInterface` or an ISO 8601 string). Retried on 429, 5xx and connection errors like any other read.
      *
-     * @param array{iterator?: string|null, limit?: int|null} $params
+     * @param array{iterator?: string|null, limit?: int|null, event_types?: list<string>, after?: \DateTimeInterface|string} $params
      * @param array{timeout?: float|int, max_retries?: int} $options
      * @return PollPage
      */
     public function poll(array $params = [], array $options = []): array
     {
+        $after = $params['after'] ?? null;
         return $this->http->request(
             'GET',
             '/v1/poller/' . rawurlencode($this->endpointId),
             true,
-            query: ['iterator' => $params['iterator'] ?? null, 'limit' => $params['limit'] ?? null],
+            query: [
+                'iterator' => $params['iterator'] ?? null,
+                'limit' => $params['limit'] ?? null,
+                'event_type' => $params['event_types'] ?? null,
+                'after' => $after instanceof \DateTimeInterface ? $after->format('Y-m-d\\TH:i:s.vP') : $after,
+            ],
             options: array_intersect_key($options, ['timeout' => true, 'max_retries' => true]),
         );
     }
 
     /**
-     * Fetches pages from `iterator` until a page with `done` true, which is yielded too.
+     * Fetches pages from `iterator` (with the same `limit`, `event_types` and `after`) until a page with `done` true, which is yielded too.
      * Each call acknowledges the page before it, so save `$page['iterator']` after processing a page to resume later.
      * The last page is acknowledged by the next call (the next time you poll with the saved iterator).
      *
-     * @param array{iterator?: string|null, limit?: int|null} $params
+     * @param array{iterator?: string|null, limit?: int|null, event_types?: list<string>, after?: \DateTimeInterface|string} $params
      * @param array{timeout?: float|int, max_retries?: int} $options
      * @return \Generator<int, PollPage>
      */
@@ -89,7 +97,7 @@ final class Poller
     {
         $iterator = $params['iterator'] ?? null;
         while (true) {
-            $page = $this->poll(['iterator' => $iterator, 'limit' => $params['limit'] ?? null], $options);
+            $page = $this->poll(['iterator' => $iterator] + $params, $options);
             yield $page;
             if ($page['done']) {
                 return;
@@ -101,7 +109,7 @@ final class Poller
     /**
      * Every message of `pages()`, one by one. Use `pages()` when you need the iterator to resume later.
      *
-     * @param array{iterator?: string|null, limit?: int|null} $params
+     * @param array{iterator?: string|null, limit?: int|null, event_types?: list<string>, after?: \DateTimeInterface|string} $params
      * @param array{timeout?: float|int, max_retries?: int} $options
      * @return \Generator<int, PolledMessage>
      */

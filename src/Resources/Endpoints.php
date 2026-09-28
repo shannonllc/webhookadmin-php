@@ -8,8 +8,8 @@ use WebhookAdmin\Page;
 
 final class Endpoints extends Resource
 {
-    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature', 'type', 'destination', 'body_format', 'secret'];
-    private const UPDATE = ['url', 'event_types', 'status', 'description', 'retry', 'compat_signature', 'destination', 'body_format'];
+    private const CREATE = ['consumer_id', 'url', 'event_types', 'fixed_ip', 'description', 'retry', 'compat_signature', 'type', 'destination', 'ordering', 'body_format', 'secret'];
+    private const UPDATE = ['url', 'event_types', 'status', 'description', 'fixed_ip', 'retry', 'compat_signature', 'destination', 'ordering', 'body_format'];
 
     private static function path(string $endpointId, string $rest = ''): string
     {
@@ -22,13 +22,14 @@ final class Endpoints extends Resource
      * receiver polls; then create a poller token with `createPollerToken()`. Other types (`sqs`, `eventbridge`, `pubsub`, `s3`,
      * `r2`, `gcs`, `azure_blob`, `servicebus`, `kafka`, `rabbitmq`; Pro plan and above) take `destination` instead, with
      * `credentials` (write-only). The type cannot be changed later.
+     * `ordering`: `none` (default, in parallel) or `fifo` (one at a time, in the order the messages were accepted).
      * `body_format`: `standard` (default, `{ type, timestamp, data }`) or `raw` (the message `data` itself; the signature covers
      * the body as sent). `secret`: an existing signing secret to keep, such as one moved from Svix (`whsec_` and standard base64
      * of 24 to 75 bytes; `whsec_` may be omitted). Omit it to generate one; it cannot be set on update (use `rotateSecret()`).
      *
      * @param array{consumer_id: string, url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
-     *        type?: string, destination?: array<string, mixed>, body_format?: 'standard'|'raw', secret?: string} $params
+     *        type?: string, destination?: array<string, mixed>, ordering?: 'none'|'fifo', body_format?: 'standard'|'raw', secret?: string} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
@@ -54,7 +55,8 @@ final class Endpoints extends Resource
     }
 
     /**
-     * Gets an endpoint with its latest attempts. Requires `logs:read`.
+     * Gets an endpoint with its latest attempts, `retrying_count` and, with `'ordering' => 'fifo'`, `waiting_count` (deliveries
+     * waiting behind the one being sent). Requires `logs:read`.
      *
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
@@ -68,11 +70,12 @@ final class Endpoints extends Resource
      * Updates an endpoint. Only the keys you pass are sent. `'status' => 'active'` resumes a paused or disabled endpoint;
      * `'event_types' => null` receives all event types, `'retry' => null` goes back to the default policy and
      * `'compat_signature' => null` removes it. `destination` changes the settings of a destination other than a webhook;
-     * omit its `credentials` to keep the current ones. Requires `endpoints:write`.
+     * omit its `credentials` to keep the current ones. `'ordering' => 'none'` sends the deliveries waiting behind a `fifo`
+     * endpoint right away, in parallel. Requires `endpoints:write`.
      *
-     * @param array{url?: string, event_types?: list<string>|null, status?: string, description?: string,
+     * @param array{url?: string, event_types?: list<string>|null, status?: string, description?: string, fixed_ip?: bool,
      *        retry?: array{count: int, interval: string}|null, compat_signature?: array{header: string, content: string, encoding: string, prefix?: string}|null,
-     *        destination?: array<string, mixed>, body_format?: 'standard'|'raw'} $params
+     *        destination?: array<string, mixed>, ordering?: 'none'|'fifo', body_format?: 'standard'|'raw'} $params
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */

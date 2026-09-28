@@ -29,14 +29,16 @@ final class Messages extends Resource
 
     /**
      * Lists messages, newest first. `foreach` the page to walk every page. Requires `logs:read`.
+     * `since`: Unix milliseconds; only messages created at or after it. When omitted with `q`, `status` or `event_type`,
+     * the last 7 days are searched.
      *
-     * @param array{status?: string, event_type?: string, q?: string, limit?: int, cursor?: string} $params
+     * @param array{status?: string, event_type?: string, q?: string, since?: int, limit?: int, cursor?: string} $params
      * @return Page<array<string, mixed>>
      * @param array{timeout?: float|int, max_retries?: int} $options
      */
     public function list(array $params = [], array $options = []): Page
     {
-        $query = self::pick($params, ['status', 'event_type', 'q', 'limit']);
+        $query = self::pick($params, ['status', 'event_type', 'q', 'since', 'limit']);
         $fetch = fn (?string $cursor): array => $this->http->request('GET', '/v1/messages', true, query: [...$query, 'cursor' => $cursor], options: self::opts($options));
         return new Page($fetch($params['cursor'] ?? null), $fetch);
     }

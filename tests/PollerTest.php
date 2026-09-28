@@ -68,6 +68,29 @@ final class PollerTest extends TestCase
         self::assertSame(['https://api.test/v1/poller/ep_1?iterator=it_0&limit=2', 'https://api.test/v1/poller/ep_1?iterator=it_1&limit=2'], array_map(static fn ($r) => $r->url, $t->calls));
     }
 
+    public function testEventTypesAndAfter(): void
+    {
+        $t = new FakeTransport(self::page('i', true), self::page('i', true), self::page('i', true));
+        $p = self::poller($t);
+        $p->poll(['event_types' => ['invoice.paid', 'invoice.failed'], 'after' => new \DateTimeImmutable('2026-09-29T09:00:00+09:00')]);
+        self::assertSame('https://api.test/v1/poller/ep_1?event_type=invoice.paid&event_type=invoice.failed&after=2026-09-29T09%3A00%3A00.000%2B09%3A00', $t->last()->url);
+        $p->poll(['event_types' => [], 'after' => '2026-09-29T00:00:00Z']);
+        self::assertSame('https://api.test/v1/poller/ep_1?after=2026-09-29T00%3A00%3A00Z', $t->last()->url);
+        $p->poll(['event_types' => ['a b'], 'iterator' => 'x/y']);
+        self::assertSame('https://api.test/v1/poller/ep_1?iterator=x%2Fy&event_type=a%20b', $t->last()->url);
+    }
+
+    public function testPagesKeepTheFilters(): void
+    {
+        $t = new FakeTransport(self::page('it_1', false, [self::msg(1)]), self::page('it_1', true));
+        foreach (self::poller($t)->pages(['event_types' => ['a.b'], 'limit' => 5]) as $_) {
+        }
+        self::assertSame(
+            ['https://api.test/v1/poller/ep_1?limit=5&event_type=a.b', 'https://api.test/v1/poller/ep_1?iterator=it_1&limit=5&event_type=a.b'],
+            array_map(static fn ($r) => $r->url, $t->calls),
+        );
+    }
+
     public function testMessagesFlattenThePages(): void
     {
         $t = new FakeTransport(self::page('it_1', false, [self::msg(1)]), self::page('it_1', false), self::page('it_2', true, [self::msg(2)]));

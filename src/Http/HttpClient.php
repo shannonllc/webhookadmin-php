@@ -88,7 +88,7 @@ final class HttpClient
     }
 
     /**
-     * @param array<string, scalar|null> $query
+     * @param array<string, scalar|list<string>|null> $query
      * @param array<string, string> $headers
      * @param array{timeout?: float|int|null, max_retries?: int|null} $options
      * @param bool $idempotent Safe to send twice. 5xx and connection errors are retried only for these.
@@ -122,21 +122,24 @@ final class HttpClient
         }
     }
 
-    /** @param array<string, scalar|null> $query */
+    /** @param array<string, scalar|list<string>|null> $query */
     public function url(string $path, array $query = []): string
     {
-        $q = [];
+        // A list is sent as the same key repeated (event_type=a&event_type=b), not as event_type[0]=a.
+        $pairs = [];
         foreach ($query as $k => $v) {
-            if ($v !== null && $v !== '') {
-                $q[$k] = is_bool($v) ? ($v ? 'true' : 'false') : (string) $v;
+            foreach (is_array($v) ? $v : [$v] as $x) {
+                if ($x !== null && $x !== '') {
+                    $pairs[] = rawurlencode((string) $k) . '=' . rawurlencode(is_bool($x) ? ($x ? 'true' : 'false') : (string) $x);
+                }
             }
         }
-        $qs = http_build_query($q, '', '&', PHP_QUERY_RFC3986);
+        $qs = implode('&', $pairs);
         return $this->baseUrl . $path . ($qs === '' ? '' : '?' . $qs);
     }
 
     /**
-     * @param array<string, scalar|null> $query
+     * @param array<string, scalar|list<string>|null> $query
      * @param array<string, string> $extra
      */
     private function once(string $method, string $path, array $query, ?string $payload, array $extra, float $timeout, bool $idempotent): Outcome

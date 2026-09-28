@@ -344,7 +344,7 @@ final class HttpTest extends TestCase
             FakeTransport::json(200, ['items' => [['id' => 'c']], 'next_cursor' => 'c2']),
             FakeTransport::json(200, ['items' => [], 'next_cursor' => null]),
         );
-        $page = FakeTransport::client($t)->messages->list(['limit' => 2, 'status' => 'failed']);
+        $page = FakeTransport::client($t)->messages->list(['limit' => 2, 'status' => 'failed', 'since' => 1790000000000]);
         self::assertInstanceOf(Page::class, $page);
         self::assertSame([['id' => 'a'], ['id' => 'b']], $page->items);
         self::assertSame('c1', $page->nextCursor);
@@ -356,7 +356,7 @@ final class HttpTest extends TestCase
         }
         self::assertSame(['a', 'b', 'c'], $ids);
         self::assertSame(
-            ['limit=2&status=failed', 'limit=2&status=failed&cursor=c1', 'limit=2&status=failed&cursor=c2'],
+            ['limit=2&status=failed&since=1790000000000', 'limit=2&status=failed&since=1790000000000&cursor=c1', 'limit=2&status=failed&since=1790000000000&cursor=c2'],
             array_map(fn ($r) => (string) parse_url($r->url, PHP_URL_QUERY), $t->calls),
         );
     }

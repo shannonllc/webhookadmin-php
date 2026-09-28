@@ -82,15 +82,15 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | Method | Endpoint |
 |---|---|
 | `messages->send(['consumer', 'event_type', 'payload', 'transformations_params'?], ['idempotency_key'?])` | `POST /v1/messages` |
-| `messages->list(['status'?, 'event_type'?, 'q'?, 'limit'?, 'cursor'?])` | `GET /v1/messages` |
+| `messages->list(['status'?, 'event_type'?, 'q'?, 'since'?, 'limit'?, 'cursor'?])` | `GET /v1/messages` |
 | `messages->get($id)` | `GET /v1/messages/:id` |
 | `deliveries->retry($id)` | `POST /v1/deliveries/:id/retry` |
 | `consumers->create(['external_id', 'name'?])` | `POST /v1/consumers` |
 | `consumers->list(['limit'?, 'cursor'?])` | `GET /v1/consumers` |
-| `endpoints->create(['consumer_id', 'url'?, 'type'?, 'destination'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?, 'body_format'?, 'secret'?])` | `POST /v1/endpoints` |
+| `endpoints->create(['consumer_id', 'url'?, 'type'?, 'destination'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?, 'ordering'?, 'body_format'?, 'secret'?])` | `POST /v1/endpoints` |
 | `endpoints->list(['consumer_id'?])` | `GET /v1/endpoints` |
 | `endpoints->get($id)` | `GET /v1/endpoints/:id` |
-| `endpoints->update($id, ['url'?, 'destination'?, 'event_types'?, 'status'?, 'description'?, 'retry'?, 'compat_signature'?, 'body_format'?])` | `PATCH /v1/endpoints/:id` |
+| `endpoints->update($id, ['url'?, 'destination'?, 'event_types'?, 'status'?, 'description'?, 'fixed_ip'?, 'retry'?, 'compat_signature'?, 'ordering'?, 'body_format'?])` | `PATCH /v1/endpoints/:id` |
 | `endpoints->testDestination(['endpoint_id'?, 'type'?, 'destination'?, 'fixed_ip'?])` | `POST /v1/destinations/test` |
 | `endpoints->delete($id)` | `DELETE /v1/endpoints/:id` |
 | `endpoints->rotateSecret($id)` | `POST /v1/endpoints/:id/rotate-secret` |
@@ -150,7 +150,7 @@ foreach ($poller->pages(['iterator' => $iterator]) as $page) {
 }
 ```
 
-`pages()` stops after a page with `done` true (nothing more right now); run it again later with the saved iterator. Delivery is at least once: the next call with a page's `iterator` acknowledges that page, and calling with an older iterator returns the same messages again, so deduplicate by `$m['id']` if needed. `poll(['iterator'?, 'limit'?])` fetches one page (`limit` 1 to 250, default 50), and `messages()` yields the messages of `pages()` one by one. `new Poller()` takes the same options as `Client` (`base_url`, `timeout`, `max_retries`, `transport`). `$m['headers']` carries the same `webhook-id`, `webhook-timestamp` and `webhook-signature` as a pushed webhook; checking the signature is optional, since the connection is already authenticated by the token.
+`pages()` stops after a page with `done` true (nothing more right now); run it again later with the saved iterator. Delivery is at least once: the next call with a page's `iterator` acknowledges that page, and calling with an older iterator returns the same messages again, so deduplicate by `$m['id']` if needed. `poll(['iterator'?, 'limit'?, 'event_types'?, 'after'?])` fetches one page (`limit` 1 to 250, default 50; `event_types` narrows the event types; `after`, a `DateTimeInterface` or ISO 8601 string, starts from that time when there is no iterator), and `messages()` yields the messages of `pages()` one by one. `new Poller()` takes the same options as `Client` (`base_url`, `timeout`, `max_retries`, `transport`). `$m['headers']` carries the same `webhook-id`, `webhook-timestamp` and `webhook-signature` as a pushed webhook; checking the signature is optional, since the connection is already authenticated by the token.
 
 ### Retry policy per endpoint
 

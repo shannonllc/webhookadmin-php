@@ -61,8 +61,8 @@ final class ResourcesTest extends TestCase
         self::assertSame($full, $t->lastCall()[2]);
         $c->endpoints->get('ep_1');
         self::assertSame(['GET', '/v1/endpoints/ep_1', null], $t->lastCall());
-        $c->endpoints->update('ep_1', ['status' => 'paused']);
-        self::assertSame(['PATCH', '/v1/endpoints/ep_1', ['status' => 'paused']], $t->lastCall());
+        $c->endpoints->update('ep_1', ['status' => 'paused', 'fixed_ip' => false]);
+        self::assertSame(['PATCH', '/v1/endpoints/ep_1', ['status' => 'paused', 'fixed_ip' => false]], $t->lastCall());
         $c->endpoints->update('ep_1', ['event_types' => null, 'retry' => null, 'compat_signature' => null, 'url' => 'https://y', 'description' => '']);
         self::assertSame('{"event_types":null,"retry":null,"compat_signature":null,"url":"https://y","description":""}', $t->last()->body);
         $c->endpoints->update('ep_1', []);
@@ -71,6 +71,10 @@ final class ResourcesTest extends TestCase
         self::assertSame(['consumer_id' => 'con_1', 'url' => 'https://x', 'body_format' => 'raw', 'secret' => 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'], $t->lastCall()[2]);
         $c->endpoints->update('ep_1', ['body_format' => 'standard', 'secret' => 'whsec_x']);
         self::assertSame('{"body_format":"standard"}', $t->last()->body);
+        $c->endpoints->create(['consumer_id' => 'con_1', 'url' => 'https://x', 'ordering' => 'fifo']);
+        self::assertSame('{"consumer_id":"con_1","url":"https://x","ordering":"fifo"}', $t->last()->body);
+        $c->endpoints->update('ep_1', ['ordering' => 'none']);
+        self::assertSame('{"ordering":"none"}', $t->last()->body);
         $c->endpoints->rotateSecret('ep_1');
         self::assertSame(['POST', '/v1/endpoints/ep_1/rotate-secret', null], $t->lastCall());
         $c->endpoints->recover('ep_1', ['since' => 1790000000000]);
