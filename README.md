@@ -193,9 +193,9 @@ $wha->messages->send(['consumer' => 'cus_123', 'event_type' => 'invoice.paid', '
 
 `code` is up to 51,200 characters and required only when the endpoint has no transformation yet. `variables` holds up to 50 string values (up to 4 KB as JSON). `transformations_params` (an array encoded as a JSON object, up to 4 KB) reaches the code as `webhook.transformationsParams`.
 
-### Moving from Svix
+### Moving from another webhook service
 
-Keep the signing secret your receivers already verify, and send the message `data` as the body as Svix does:
+Keep the signing secret your receivers already verify, and send the message `data` as the body:
 
 ```php
 $wha->endpoints->create(['consumer_id' => 'con_...', 'url' => 'https://example.com/wh', 'secret' => 'whsec_...', 'body_format' => 'raw']);

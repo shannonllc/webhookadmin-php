@@ -24,7 +24,7 @@ final class Endpoints extends Resource
      * `credentials` (write-only). The type cannot be changed later.
      * `ordering`: `none` (default, in parallel) or `fifo` (one at a time, in the order the messages were accepted).
      * `body_format`: `standard` (default, `{ type, timestamp, data }`) or `raw` (the message `data` itself; the signature covers
-     * the body as sent). `secret`: an existing signing secret to keep, such as one moved from Svix (`whsec_` and standard base64
+     * the body as sent). `secret`: an existing signing secret to keep, such as one from another webhook service (`whsec_` and standard base64
      * of 24 to 75 bytes; `whsec_` may be omitted). Omit it to generate one; it cannot be set on update (use `rotateSecret()`).
      *
      * @param array{consumer_id: string, url?: string, event_types?: list<string>|null, fixed_ip?: bool, description?: string,
