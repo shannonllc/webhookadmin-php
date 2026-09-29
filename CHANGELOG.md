@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (2026-09-29)
+
+- Documentation only: the README and the type descriptions no longer name other webhook services. No API changes.
+
 ## 0.2.0 (2026-09-29)
 
 - Polling endpoints: `endpoints->create(['consumer_id' => ..., 'type' => 'polling'])` (no `url`), `endpoints->listPollerTokens($id)`, `endpoints->createPollerToken($id, ['name'?])` and `endpoints->deletePollerToken($id, $tokenId)`. `new Poller($endpointId, $token)` fetches the messages as the receiver with a poller token: `poll(['iterator'?, 'limit'?])`, `pages()` and `messages()` (generators). Endpoints have `type` (`http` or `polling`) and `last_polled_at`, the created endpoint and `endpoints->get()` have `poller_url`, `url` is `null` for a polling endpoint, deliveries can be `waiting` and attempts have `via` `poll`.
