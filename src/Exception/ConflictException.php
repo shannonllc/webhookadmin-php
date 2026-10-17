@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace WebhookAdmin\Exception;
 
-/** 409: conflicts with the current state (duplicate external_id, delivery still in progress). */
+/**
+ * 409: conflicts with the current state (duplicate external_id, delivery still in progress), or the endpoint is
+ * disabled (`errorCode` `endpoint_disabled`: fix and re-enable it before retrying).
+ */
 class ConflictException extends WebhookAdminException
 {
 }

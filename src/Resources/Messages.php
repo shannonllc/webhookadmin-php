@@ -44,7 +44,10 @@ final class Messages extends Resource
     }
 
     /**
-     * Gets a message with its deliveries and attempts. Requires `logs:read`.
+     * Gets a message with its deliveries and attempts. `source` is the source the message was received from
+     * (`['id', 'name', 'request_id']`, with the name at that time and the received request it was made from), or null.
+     * Each delivery has `endpoint_status` (`active`, `paused`, `disabled`, or null if the endpoint was deleted); a delivery
+     * to a disabled or deleted endpoint cannot be retried. Requires `logs:read`.
      *
      * @return array<string, mixed>
      * @param array{timeout?: float|int, max_retries?: int} $options

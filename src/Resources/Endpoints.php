@@ -20,8 +20,14 @@ final class Endpoints extends Resource
      * Creates an endpoint. The signing secret is returned only here. Requires `endpoints:write`.
      * `url` is required for webhooks (`type` `http`, the default). `'type' => 'polling'` (without `url`) creates an endpoint the
      * receiver polls; then create a poller token with `createPollerToken()`. Other types (`sqs`, `eventbridge`, `pubsub`, `s3`,
-     * `r2`, `gcs`, `azure_blob`, `servicebus`, `kafka`, `rabbitmq`; Pro plan and above) take `destination` instead, with
-     * `credentials` (write-only). The type cannot be changed later.
+     * `r2`, `gcs`, `azure_blob`, `servicebus`, `kafka`, `rabbitmq`, `slack`, `teams`, `chatwork`; Pro plan and above) take
+     * `destination` instead, with `credentials` (write-only). The type cannot be changed later.
+     * `slack` and `teams` take `['credentials' => ['webhook_url' => ...]]` (a Slack Incoming Webhook URL, or a Teams Workflows URL
+     * on `*.powerplatform.com` or `*.logic.azure.com`); `chatwork` takes `['room_id' => ..., 'credentials' => ['api_token' => ...]]`.
+     * They post a chat message instead of the JSON body, without a signature: the message uses the `data` fields `text` (required
+     * for this form), and optionally `title`, `lines` (strings) and `link` (https URL); otherwise the title is the event type and
+     * the body is `data` as JSON. For these, `via` of an attempt is the type and `ref` is the Chatwork `message_id` (`null` for
+     * `slack` and `teams`).
      * `ordering`: `none` (default, in parallel) or `fifo` (one at a time, in the order the messages were accepted).
      * `body_format`: `standard` (default, `{ type, timestamp, data }`) or `raw` (the message `data` itself; the signature covers
      * the body as sent). `secret`: an existing signing secret to keep, such as one from another webhook service (`whsec_` and standard base64
@@ -108,7 +114,8 @@ final class Endpoints extends Resource
     /**
      * Resends every delivery to this endpoint that ended `failed`, for messages created at or after `since`
      * (Unix milliseconds), as the same messages (same `webhook-id`). Runs in the background; check it with
-     * `recovery()`. The endpoint must be `active`. Requires `messages:retry`.
+     * `recovery()`. The endpoint must be `active`: a disabled endpoint throws `ConflictException` with `errorCode`
+     * `endpoint_disabled`, a paused one with `errorCode` `conflict`. Requires `messages:retry`.
      *
      * @param array{since: int} $params
      * @return array<string, mixed>
@@ -132,7 +139,7 @@ final class Endpoints extends Resource
 
     /**
      * Sends a test message to this endpoint only (default event type `webhook.test`). Not counted in usage.
-     * Requires `messages:send`.
+     * A disabled endpoint throws `ConflictException` with `errorCode` `endpoint_disabled`. Requires `messages:send`.
      *
      * @param array{event_type?: string} $params
      * @return array{message_id: string}

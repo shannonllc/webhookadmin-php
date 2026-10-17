@@ -14,6 +14,7 @@ use WebhookAdmin\Resources\Endpoints;
 use WebhookAdmin\Resources\EventTypes;
 use WebhookAdmin\Resources\Messages;
 use WebhookAdmin\Resources\Portal;
+use WebhookAdmin\Resources\Sources;
 
 /** Client for the Webhook Admin API (`/v1`). */
 final class Client
@@ -30,6 +31,7 @@ final class Client
     public readonly Deliveries $deliveries;
     public readonly EventTypes $eventTypes;
     public readonly Portal $portal;
+    public readonly Sources $sources;
     public readonly string $baseUrl;
     /** @internal */
     public readonly HttpClient $http;
@@ -60,5 +62,6 @@ final class Client
         $this->deliveries = new Deliveries($this->http);
         $this->eventTypes = new EventTypes($this->http);
         $this->portal = new Portal($this->http);
+        $this->sources = new Sources($this->http);
     }
 }

@@ -61,9 +61,9 @@ final class HttpTest extends TestCase
         self::assertSame(30.0, $t->last()->timeout);
     }
 
-    public function testUserAgentIsParsedByTheWorker(): void
+    public function testUserAgentIsParsedByTheServer(): void
     {
-        // apps/worker/src/auth.ts の sdkOf と同じ正規表現
+        // サーバーが User-Agent を読むときと同じ形の正規表現
         self::assertMatchesRegularExpression('/(?:^|\s)(webhookadmin-[a-z]+)\/(\d+\.\d+\.\d+)(?=\s|$)/', Version::USER_AGENT);
     }
 
@@ -97,7 +97,7 @@ final class HttpTest extends TestCase
         self::assertSame('https://api.webhookadmin.com', $c->baseUrl);
         $c->consumers->list();
         self::assertSame('https://api.webhookadmin.com/v1/consumers', $t->last()->url);
-        self::assertSame('http://localhost:8787', (new Client('sk_test_x', ['base_url' => 'http://localhost:8787//']))->baseUrl);
+        self::assertSame('http://api.example.test', (new Client('sk_test_x', ['base_url' => 'http://api.example.test//']))->baseUrl);
         (new Client('sk_test_x', ['transport' => $t, 'timeout' => 5]))->consumers->list();
         self::assertSame(5.0, $t->last()->timeout);
         (new Client('sk_test_x', ['transport' => $t, 'timeout' => 5]))->consumers->list([], ['timeout' => 1.5]);

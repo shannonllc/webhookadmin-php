@@ -22,6 +22,17 @@ final class Consumers extends Resource
     }
 
     /**
+     * Deletes a consumer with its endpoints and the sources that deliver to it. Portal links stop working and
+     * deliveries not yet sent are not sent. A missing consumer throws `NotFoundException`. Requires `consumers:write`.
+     *
+     * @param array{timeout?: float|int, max_retries?: int} $options
+     */
+    public function delete(string $consumerId, array $options = []): void
+    {
+        $this->http->request('DELETE', '/v1/consumers/' . self::id($consumerId), true, options: self::opts($options));
+    }
+
+    /**
      * Lists consumers. `foreach` the page to walk every page. Requires `logs:read`.
      *
      * @param array{limit?: int, cursor?: string} $params

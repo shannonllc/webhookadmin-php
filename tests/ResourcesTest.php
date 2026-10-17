@@ -8,8 +8,9 @@ use PHPUnit\Framework\TestCase;
 use WebhookAdmin\Exception\ApiException;
 use WebhookAdmin\Exception\ConflictException;
 use WebhookAdmin\Exception\NotFoundException;
+use WebhookAdmin\Exception\PlanLimitException;
 
-/** Each method calls the documented method, path and body (docs/api.md, section 2). */
+/** Each method calls the documented method, path and body (https://webhookadmin.com/docs/api/). */
 final class ResourcesTest extends TestCase
 {
     public function testMessages(): void
@@ -40,6 +41,8 @@ final class ResourcesTest extends TestCase
         self::assertSame(['POST', '/v1/consumers', ['external_id' => 'cus_1']], $t->lastCall());
         $c->consumers->create(['external_id' => 'cus_2', 'name' => 'Acme', 'unknown' => 1]);
         self::assertSame(['POST', '/v1/consumers', ['external_id' => 'cus_2', 'name' => 'Acme']], $t->lastCall());
+        $c->consumers->delete('con_1/x');
+        self::assertSame(['DELETE', '/v1/consumers/con_1%2Fx', null], $t->lastCall());
     }
 
     public function testEndpoints(): void
@@ -138,6 +141,23 @@ final class ResourcesTest extends TestCase
         self::assertSame(['POST', '/v1/destinations/test', ['endpoint_id' => 'ep_1']], $t->lastCall());
         $c->endpoints->testDestination(['type' => 'sqs', 'destination' => ['region' => 'x'], 'fixed_ip' => true]);
         self::assertSame('{"type":"sqs","destination":{"region":"x"},"fixed_ip":true}', $t->last()->body);
+    }
+
+    public function testChatDestinations(): void
+    {
+        $ep = ['id' => 'ep_2', 'type' => 'chatwork', 'url' => 'chatwork://rooms/123', 'destination' => ['room_id' => '123', 'credentials_hint' => 'abcd…wxyz']];
+        $result = ['ok' => true, 'via' => 'teams', 'response_status' => 202, 'duration_ms' => 50, 'error' => null, 'response_head' => null, 'ref' => null];
+        $t = new FakeTransport(FakeTransport::json(201, $ep), FakeTransport::json(201, $ep), FakeTransport::json(200, $result));
+        $c = FakeTransport::client($t);
+        $slack = ['credentials' => ['webhook_url' => 'https://hooks.slack.com/services/T0001/B0001/x']];
+        $c->endpoints->create(['consumer_id' => 'con_1', 'type' => 'slack', 'destination' => $slack]);
+        self::assertSame(['POST', '/v1/endpoints', ['consumer_id' => 'con_1', 'type' => 'slack', 'destination' => $slack]], $t->lastCall());
+        $chatwork = ['room_id' => '123', 'credentials' => ['api_token' => 't']];
+        self::assertSame($ep, $c->endpoints->create(['consumer_id' => 'con_1', 'type' => 'chatwork', 'destination' => $chatwork]));
+        self::assertSame(['POST', '/v1/endpoints', ['consumer_id' => 'con_1', 'type' => 'chatwork', 'destination' => $chatwork]], $t->lastCall());
+        $teams = ['credentials' => ['webhook_url' => 'https://example.logic.azure.com/workflows/1']];
+        self::assertSame($result, $c->endpoints->testDestination(['type' => 'teams', 'destination' => $teams]));
+        self::assertSame(['POST', '/v1/destinations/test', ['type' => 'teams', 'destination' => $teams]], $t->lastCall());
     }
 
     public function testDestinationTestNotRetriedOn5xx(): void
@@ -279,6 +299,125 @@ final class ResourcesTest extends TestCase
         $t = new FakeTransport(FakeTransport::json(200, ['items' => []]), FakeTransport::json(404, ['error' => 'not_found', 'message' => 'x']));
         $this->expectException(NotFoundException::class);
         FakeTransport::client($t)->eventTypes->ensure(['a']);
+    }
+
+    public function testSources(): void
+    {
+        $src = ['id' => 'src_1', 'name' => 'Stripe', 'provider' => 'stripe', 'consumer_id' => 'con_1', 'consumer' => ['id' => 'con_1', 'external_id' => 'internal', 'name' => ''],
+            'status' => 'active', 'url' => 'https://api.test/in/abc', 'secret_hint' => null, 'config' => [], 'created_at' => 1, 'updated_at' => 1];
+        $t = new FakeTransport(FakeTransport::json(201, $src), FakeTransport::json(200, $src));
+        $c = FakeTransport::client($t);
+        self::assertSame($src, $c->sources->create(['name' => 'Stripe', 'provider' => 'stripe', 'consumer_id' => 'con_1', 'unknown' => 1]));
+        self::assertSame(['POST', '/v1/sources', ['name' => 'Stripe', 'provider' => 'stripe', 'consumer_id' => 'con_1']], $t->lastCall());
+        $full = ['name' => 'ERP', 'provider' => 'hmac', 'consumer_id' => 'con_1', 'secret' => 's3cret',
+            'config' => ['header' => 'x-sig', 'algorithm' => 'sha256', 'encoding' => 'base64', 'prefix' => 'sha256=', 'event_type_field' => 'event.kind', 'id_header' => 'x-id', 'event_type' => 'erp'],
+            'status' => 'paused'];
+        $c->sources->create($full);
+        self::assertSame(['POST', '/v1/sources', $full], $t->lastCall());
+        $c->sources->create(['name' => 'a', 'provider' => 'none', 'consumer_id' => 'con_1', 'config' => []]);
+        self::assertSame('{"name":"a","provider":"none","consumer_id":"con_1","config":{}}', $t->last()->body);
+        self::assertSame($src, $c->sources->get('src/1'));
+        self::assertSame('GET', $t->last()->method);
+        self::assertSame('https://api.test/v1/sources/src%2F1', $t->last()->url);
+        $c->sources->update('src_1', ['name' => 'GH', 'provider' => 'github', 'consumer_id' => 'con_2', 'status' => 'active', 'config' => [], 'secret' => 'x']);
+        self::assertSame('PATCH', $t->last()->method);
+        self::assertSame('{"name":"GH","provider":"github","consumer_id":"con_2","status":"active","config":{}}', $t->last()->body);
+        $c->sources->update('src_1', []);
+        self::assertSame('{}', $t->last()->body);
+        $c->sources->setSecret('src_1', 'whsec_x');
+        self::assertSame(['PUT', '/v1/sources/src_1/secret', ['secret' => 'whsec_x']], $t->lastCall());
+        $c->sources->setSecret('src_1', null);
+        self::assertSame('{"secret":null}', $t->last()->body);
+        self::assertSame('application/json', $t->last()->headers['content-type']);
+        $c->sources->delete('src_1');
+        self::assertSame(['DELETE', '/v1/sources/src_1', null], $t->lastCall());
+    }
+
+    public function testSourcesPagination(): void
+    {
+        $req = ['id' => 'sreq_2', 'at' => 5, 'status' => 'rejected', 'response_status' => 401, 'reason' => 'invalid signature', 'message_id' => null,
+            'event_type' => null, 'content_type' => 'application/json', 'size' => 12, 'headers' => ['stripe-signature' => 't=1']];
+        $t = new FakeTransport(
+            FakeTransport::json(200, ['items' => [['id' => 'src_1']], 'next_cursor' => 'c1']),
+            FakeTransport::json(200, ['items' => [['id' => 'src_2']], 'next_cursor' => null]),
+            FakeTransport::json(200, ['items' => [$req], 'next_cursor' => 'r1']),
+            FakeTransport::json(200, ['items' => [['id' => 'sreq_1']], 'next_cursor' => null]),
+        );
+        $c = FakeTransport::client($t);
+        $page = $c->sources->list(['limit' => 1]);
+        self::assertSame('https://api.test/v1/sources?limit=1', $t->last()->url);
+        self::assertSame('c1', $page->nextCursor);
+        self::assertSame(['src_1', 'src_2'], array_map(fn ($s) => $s['id'], iterator_to_array($page, false)));
+        self::assertSame('https://api.test/v1/sources?limit=1&cursor=c1', $t->last()->url);
+        $requests = $c->sources->listRequests('src_1', ['cursor' => 'start', 'unknown' => 1]);
+        self::assertSame('https://api.test/v1/sources/src_1/requests?cursor=start', $t->last()->url);
+        self::assertSame([$req], $requests->items);
+        self::assertSame(['sreq_2', 'sreq_1'], array_map(fn ($r) => $r['id'], iterator_to_array($requests, false)));
+        self::assertSame('https://api.test/v1/sources/src_1/requests?cursor=r1', $t->last()->url);
+    }
+
+    public function testSourcesRetries(): void
+    {
+        $unavailable = FakeTransport::json(503, ['error' => 'unavailable', 'message' => 'x']);
+        $ok = FakeTransport::json(200, ['id' => 'src_1']);
+        $t = new FakeTransport($unavailable, $ok, $unavailable, $ok, $unavailable, FakeTransport::json(204), $unavailable, $ok, $unavailable, FakeTransport::json(200, ['items' => []]), $unavailable);
+        $c = FakeTransport::client($t, ['max_retries' => 1]);
+        $c->sources->get('src_1');
+        $c->sources->update('src_1', ['name' => 'b']);
+        $c->sources->delete('src_1');
+        $c->sources->setSecret('src_1', null);
+        $c->sources->listRequests('src_1');
+        self::assertCount(10, $t->calls);
+        try {
+            $c->sources->create(['name' => 'a', 'provider' => 'none', 'consumer_id' => 'con_1']);
+            self::fail('no exception');
+        } catch (ApiException $e) {
+            self::assertSame(503, $e->status);
+        }
+        self::assertCount(11, $t->calls);
+    }
+
+    public function testSourcesNewSettingsAndStatusFilter(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(201, ['id' => 'src_1', 'held' => 2]), FakeTransport::json(200, ['items' => [['id' => 'sreq_1', 'status' => 'held']], 'next_cursor' => null]));
+        $c = FakeTransport::client($t);
+        $params = ['name' => 'K', 'provider' => 'api_key', 'consumer_id' => 'con_1', 'secret' => 'key',
+            'config' => ['header' => 'authorization', 'prefix' => 'Bearer ', 'query' => 'key', 'verify_token' => 'vt', 'username' => 'user',
+                'forward_headers' => ['x-request-id'], 'response' => ['status' => 202, 'content_type' => 'application/json', 'body' => '{"ok":true}']]];
+        self::assertSame(2, $c->sources->create($params)['held']);
+        self::assertSame(['POST', '/v1/sources', $params], $t->lastCall());
+        $page = $c->sources->listRequests('src_1', ['status' => 'held', 'limit' => 10]);
+        self::assertSame('https://api.test/v1/sources/src_1/requests?status=held&limit=10', $t->last()->url);
+        self::assertSame('held', $page->items[0]['status']);
+    }
+
+    public function testSourcesReprocessRequest(): void
+    {
+        $done = ['id' => 'sreq_1', 'status' => 'accepted', 'processed_at' => 3, 'reprocessable' => false];
+        $t = new FakeTransport(FakeTransport::json(200, $done), FakeTransport::json(503, ['error' => 'unavailable', 'message' => 'x']), FakeTransport::json(409, ['error' => 'conflict', 'message' => 'x']));
+        $c = FakeTransport::client($t, ['max_retries' => 1]);
+        self::assertSame($done, $c->sources->reprocessRequest('src/1', 'sreq/1'));
+        self::assertSame(['POST', '/v1/sources/src%2F1/requests/sreq%2F1/reprocess', null], $t->lastCall());
+        try {
+            $c->sources->reprocessRequest('src_1', 'sreq_1');
+            self::fail('no exception');
+        } catch (ApiException $e) {
+            self::assertSame(503, $e->status);
+        }
+        self::assertCount(2, $t->calls);
+        $this->expectException(ConflictException::class);
+        $c->sources->reprocessRequest('src_1', 'sreq_1');
+    }
+
+    public function testSourcesPlanLimit(): void
+    {
+        $t = new FakeTransport(FakeTransport::json(402, ['error' => 'plan_limit', 'message' => 'limit', 'fields' => ['sources' => 'up to 1']]));
+        try {
+            FakeTransport::client($t)->sources->create(['name' => 'a', 'provider' => 'none', 'consumer_id' => 'con_1']);
+            self::fail('no exception');
+        } catch (PlanLimitException $e) {
+            self::assertSame(['sources' => 'up to 1'], $e->fields);
+        }
     }
 
     public function testConflict(): void

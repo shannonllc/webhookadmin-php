@@ -15,7 +15,7 @@ class WebhookAdminException extends \RuntimeException
      * @param int|null $status HTTP status. Null when no response was received.
      * @param string|null $errorCode API error code, such as `invalid` or `not_found`.
      * @param array<string, string>|null $fields Per-field messages for validation errors.
-     * @param string|null $requestId Request ID (`x-request-id`, or Cloudflare's `cf-ray`) to quote when contacting support.
+     * @param string|null $requestId Request ID to quote when contacting support.
      */
     public function __construct(
         string $message,

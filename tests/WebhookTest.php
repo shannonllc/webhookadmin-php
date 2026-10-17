@@ -22,8 +22,8 @@ final class FixedClockWebhook extends Webhook
 }
 
 /**
- * Receiver-side verification. The vectors are signed by the Worker, the Node SDK and the official Standard Webhooks
- * library, with results decided by the Node SDK (scripts/sdk-vectors.mts in the monorepo).
+ * Receiver-side verification. The vectors are signed by the server, the Node SDK and the official Standard Webhooks
+ * library, with results decided by the Node SDK.
  */
 final class WebhookTest extends TestCase
 {

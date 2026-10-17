@@ -87,6 +87,7 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `deliveries->retry($id)` | `POST /v1/deliveries/:id/retry` |
 | `consumers->create(['external_id', 'name'?])` | `POST /v1/consumers` |
 | `consumers->list(['limit'?, 'cursor'?])` | `GET /v1/consumers` |
+| `consumers->delete($id)` | `DELETE /v1/consumers/:id` |
 | `endpoints->create(['consumer_id', 'url'?, 'type'?, 'destination'?, 'event_types'?, 'fixed_ip'?, 'description'?, 'retry'?, 'compat_signature'?, 'ordering'?, 'body_format'?, 'secret'?])` | `POST /v1/endpoints` |
 | `endpoints->list(['consumer_id'?])` | `GET /v1/endpoints` |
 | `endpoints->get($id)` | `GET /v1/endpoints/:id` |
@@ -108,6 +109,14 @@ Route::post('/webhooks', function (Request $request) use ($wh) {
 | `eventTypes->list()` | `GET /v1/event-types` |
 | `eventTypes->create(['name', 'description'?])` | `POST /v1/event-types` |
 | `eventTypes->ensure([name or ['name', 'description'?], ...])` | `GET` and `POST /v1/event-types` |
+| `sources->create(['name', 'provider', 'consumer_id', 'secret'?, 'config'?, 'status'?])` | `POST /v1/sources` |
+| `sources->list(['limit'?, 'cursor'?])` | `GET /v1/sources` |
+| `sources->get($id)` | `GET /v1/sources/:id` |
+| `sources->update($id, ['name'?, 'provider'?, 'consumer_id'?, 'status'?, 'config'?])` | `PATCH /v1/sources/:id` |
+| `sources->delete($id)` | `DELETE /v1/sources/:id` |
+| `sources->setSecret($id, $secret or null)` | `PUT /v1/sources/:id/secret` |
+| `sources->listRequests($id, ['limit'?, 'cursor'?, 'status'?])` | `GET /v1/sources/:id/requests` |
+| `sources->reprocessRequest($id, $requestId)` | `POST /v1/sources/:id/requests/:request_id/reprocess` |
 
 Every method also takes per-call options as the last argument: `['timeout' => seconds, 'max_retries' => n]`.
 
@@ -193,6 +202,45 @@ $wha->messages->send(['consumer' => 'cus_123', 'event_type' => 'invoice.paid', '
 
 `code` is up to 51,200 characters and required only when the endpoint has no transformation yet. `variables` holds up to 50 string values (up to 4 KB as JSON). `transformations_params` (an array encoded as a JSON object, up to 4 KB) reaches the code as `webhook.transformationsParams`.
 
+### Sources
+
+A source receives webhooks from another service at its own URL, verifies their signatures and turns them into messages of a consumer, delivered to that consumer's endpoints like messages you send. Register the source's `url` with the other service.
+
+```php
+$source = $wha->sources->create([
+    'name' => 'Stripe',
+    'provider' => 'stripe',
+    'consumer_id' => 'con_...',
+    'secret' => 'whsec_...', // the other service's signing secret
+]);
+echo $source['url']; // https://api.webhookadmin.com/in/...
+```
+
+```php
+// After fixing a wrong secret, process the rejected webhooks again
+foreach ($wha->sources->listRequests($source['id'], ['status' => 'rejected']) as $r) {
+    if ($r['reprocessable']) {
+        $wha->sources->reprocessRequest($source['id'], $r['id']);
+    }
+}
+```
+
+The URL accepts `POST`, `PUT`, `PATCH` and `DELETE` with a body of up to 10 MB. `provider` is one of:
+
+| Provider | Verifies | `config` |
+|---|---|---|
+| `stripe`, `github`, `shopify`, `slack`, `zoom` | The service's signature | |
+| `meta` | Meta's signature, and answers the subscription check | `verify_token` |
+| `standard` | Standard Webhooks signatures | |
+| `hmac` | An HMAC-SHA256 of the body | `header` (required), `encoding`, `prefix` |
+| `basic` | Basic authentication (the secret is the password) | `username` (required) |
+| `api_key` | The secret in a header or a query parameter | `header` (and `prefix`, such as `'Bearer '`) or `query` |
+| `none` | Nothing | |
+
+For `hmac`, `basic`, `api_key` and `none`, `config.event_type_field` reads the event type from a body field and `config.id_header` drops duplicate deliveries. For every provider, `config.forward_headers` passes received headers on to the endpoints (up to 20), and `config.response` (`['status' => 202, 'content_type' => 'application/json', 'body' => '{"ok":true}']`) sets the reply when a webhook is accepted.
+
+`setSecret($id, $secret)` changes the secret (the previous one is still accepted for 24 hours) and `setSecret($id, null)` removes it. `listRequests()` returns what the source received, newest first, with `status` (`accepted`, `duplicate`, `rejected` or `held`), `reason` and the `message_id` it became. A paused source still accepts webhooks and holds them (`held` on the source is the number waiting); they become messages when you set it back to `active`. A message received by a source has `source` (`['id', 'name', 'request_id']`) in `messages->get()`. The number of sources depends on the plan; `create()` throws `PlanLimitException` beyond it.
+
 ### Moving from another webhook service
 
 Keep the signing secret your receivers already verify, and send the message `data` as the body:
@@ -222,7 +270,7 @@ foreach ($wha->messages->list(['status' => 'failed']) as $message) {
 | `NotFoundException` | 404 |
 | `ValidationException` | 400, 413, 422 |
 | `PlanLimitException` | 402 |
-| `ConflictException` | 409 |
+| `ConflictException` | 409 (`errorCode` is `endpoint_disabled` when retrying, testing or bulk-resending to a disabled endpoint: fix it and set `status` to `active` first) |
 | `RateLimitException` | 429 (`retryAfter` in seconds) |
 | `ApiException` | other, including 5xx |
 | `ConnectionException` | no response |
@@ -245,7 +293,7 @@ try {
 | Response | Retried |
 |---|---|
 | 429 | Always. Waits for `retry-after`, or until `x-ratelimit-reset`. |
-| 5xx, connection error, timeout | Only requests that are safe to repeat: `GET`, `PATCH`, `DELETE`, `messages->send`, `portal->createLink` |
+| 5xx, connection error, timeout | Only requests that are safe to repeat: `GET`, `PUT`, `PATCH`, `DELETE`, `messages->send`, `portal->createLink` |
 | Other 4xx | Never |
 
 Backoff starts at 0.5 s, doubles up to 8 s, with ±25% jitter. `messages->send` generates an `Idempotency-Key` when you omit it and sends the same key on every retry, so a retried send is delivered once. Keys are kept for 24 hours.

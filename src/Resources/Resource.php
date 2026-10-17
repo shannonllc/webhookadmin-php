@@ -10,7 +10,7 @@ use WebhookAdmin\Http\HttpClient;
  * Per-call options accepted by every method as the last argument:
  * `['timeout' => seconds, 'max_retries' => int]`.
  *
- * Params are arrays with the API's field names (docs/api.md). Keys you leave out are not sent;
+ * Params are arrays with the API's field names (https://webhookadmin.com/docs/api/). Keys you leave out are not sent;
  * a key set to `null` is sent as JSON `null`.
  *
  * @internal
