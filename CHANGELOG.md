@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (2026-10-17)
+
+- Republished from a cleaned history. No code changes.
+
 ## 0.3.0 (2026-10-17)
 
 - Comments and tests only: the request ID is described as the ID to quote when contacting support, and internal paths and local addresses were removed from comments and tests. No API changes.
